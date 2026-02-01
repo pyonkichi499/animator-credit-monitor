@@ -103,3 +103,26 @@ class TestHistoryManager:
         with open(file_path, encoding="utf-8") as f:
             saved = json.load(f)
         assert saved == data
+
+    def test_異なるソース名は別ファイルに保存される(self, tmp_data_dir: Path) -> None:
+        manager = HistoryManager(data_dir=tmp_data_dir)
+        data_a = [{"id": "1", "title": "作品A"}]
+        data_b = [{"id": "2", "title": "作品B"}]
+
+        manager.save("bangumi_50763", data_a)
+        manager.save("bangumi_99999", data_b)
+
+        assert (tmp_data_dir / "bangumi_50763_history.json").exists()
+        assert (tmp_data_dir / "bangumi_99999_history.json").exists()
+        assert manager.load("bangumi_50763") == data_a
+        assert manager.load("bangumi_99999") == data_b
+
+    def test_ソース名にIDを含めると別アニメーターの履歴と混ざらない(self, tmp_data_dir: Path) -> None:
+        manager = HistoryManager(data_dir=tmp_data_dir)
+
+        manager.save("bangumi_50763", [{"id": "1", "title": "作品X"}])
+
+        diff = manager.detect_diff("bangumi_99999", [{"id": "2", "title": "作品Y"}])
+
+        assert len(diff) == 1
+        assert diff[0]["title"] == "作品Y"

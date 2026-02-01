@@ -13,7 +13,12 @@ def runner() -> CliRunner:
 
 
 class TestCLI:
-    def test_環境変数が未設定の場合はエラー終了する(self, runner: CliRunner) -> None:
+    @patch("animator_credit_monitor.main.load_dotenv")
+    def test_環境変数が未設定の場合はエラー終了する(
+        self,
+        mock_dotenv: MagicMock,
+        runner: CliRunner,
+    ) -> None:
         with patch.dict("os.environ", {}, clear=True):
             result = runner.invoke(cli, ["check"])
 

@@ -42,6 +42,7 @@ class BangumiScraper:
                 logger.info("Fetching Bangumi page %d: %s", page, url)
                 resp = self._session.get(url, timeout=30)
                 resp.raise_for_status()
+                resp.encoding = resp.apparent_encoding
 
                 soup = BeautifulSoup(resp.text, "html.parser")
                 works = self._parse_works(soup)
@@ -137,6 +138,7 @@ class SakugaWikiScraper:
             logger.info("Searching Sakuga@wiki for: %s", name)
             resp = self._session.get(url, params=params, timeout=30)
             resp.raise_for_status()
+            resp.encoding = resp.apparent_encoding
 
             soup = BeautifulSoup(resp.text, "html.parser")
             return self._parse_search_results(soup)

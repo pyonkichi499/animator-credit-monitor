@@ -61,7 +61,7 @@ def check(dry_run: bool, bangumi_only: bool, wiki_only: bool) -> None:
         works = scraper.fetch_works(bangumi_id)
 
         if works:
-            diff = history.detect_diff("bangumi", works)
+            diff = history.detect_diff(f"bangumi_{bangumi_id}", works)
             if diff:
                 found_new = True
                 notifier.notify(
@@ -69,7 +69,7 @@ def check(dry_run: bool, bangumi_only: bool, wiki_only: bool) -> None:
                     _format_bangumi_diff(diff),
                 )
             if not dry_run:
-                history.save("bangumi", works)
+                history.save(f"bangumi_{bangumi_id}", works)
         else:
             click.echo("  No data retrieved from Bangumi.")
 
@@ -80,7 +80,7 @@ def check(dry_run: bool, bangumi_only: bool, wiki_only: bool) -> None:
         results = scraper_wiki.search(target_name)
 
         if results:
-            diff = history.detect_diff("sakugawiki", results)
+            diff = history.detect_diff(f"sakugawiki_{target_name}", results)
             if diff:
                 found_new = True
                 notifier.notify(
@@ -88,7 +88,7 @@ def check(dry_run: bool, bangumi_only: bool, wiki_only: bool) -> None:
                     _format_wiki_diff(diff),
                 )
             if not dry_run:
-                history.save("sakugawiki", results)
+                history.save(f"sakugawiki_{target_name}", results)
         else:
             click.echo("  No data retrieved from Sakuga@wiki.")
 
