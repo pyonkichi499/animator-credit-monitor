@@ -1,0 +1,37 @@
+[project]
+name = "animator-credit-monitor"
+version = "0.1.0"
+description = "Automated detection of new animation credits for specified animators"
+authors = [
+    { name = "terauchi hiroshi", email = "terauchi.hiroshi@cloud-ace.jp" }
+]
+dependencies = [
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "click>=8.1",
+]
+requires-python = ">= 3.11"
+
+[project.scripts]
+animator-credit-monitor = "animator_credit_monitor.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = [
+    "pytest>=8.0",
+    "responses>=0.25",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/animator_credit_monitor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
