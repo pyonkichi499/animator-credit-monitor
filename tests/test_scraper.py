@@ -2,7 +2,7 @@ from pathlib import Path
 
 import responses
 
-from animator_credit_monitor.scraper import BangumiScraper, SakugaWikiScraper
+from animator_credit_monitor.scraper import AniListScraper, BangumiScraper, SakugaWikiScraper
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -186,16 +186,34 @@ class TestAniListScraper:
             status=200,
         )
 
-        from animator_credit_monitor.scraper import AniListScraper
         scraper = AniListScraper()
         results = scraper.fetch_works("テストアニメーター")
 
         assert len(results) == 2
         assert results[0]["title"] == "テスト作品A"
         assert results[0]["title_romaji"] == "Test Anime A"
-        assert results[0]["role"] == "Key Animation (ep 1)"
+        assert results[0]["role"] == "原画 (ep 1)"
         assert results[0]["id"] == "100"
         assert results[0]["date"] == "2026-01"
+        assert results[1]["role"] == "第二原画"
+
+    def test_AniList役職名が日本語に変換される(self) -> None:
+        scraper = AniListScraper()
+        assert scraper._translate_role("Key Animation") == "原画"
+        assert scraper._translate_role("Animation Director") == "作画監督"
+        assert scraper._translate_role("Chief Animation Director") == "総作画監督"
+        assert scraper._translate_role("In-Between Animation") == "動画"
+
+    def test_AniListエピソード付き役職名が正しく変換される(self) -> None:
+        scraper = AniListScraper()
+        assert scraper._translate_role("Key Animation (ep 1)") == "原画 (ep 1)"
+        assert scraper._translate_role("Animation Director (ep 3, 7)") == "作画監督 (ep 3, 7)"
+        assert scraper._translate_role("Key Animation (OP)") == "原画 (OP)"
+
+    def test_AniList未知の役職名はそのまま返される(self) -> None:
+        scraper = AniListScraper()
+        assert scraper._translate_role("Theme Song Performance") == "Theme Song Performance"
+        assert scraper._translate_role("") == ""
 
     @responses.activate
     def test_AniListでスタッフが見つからない場合は空リストを返す(self) -> None:
@@ -207,7 +225,6 @@ class TestAniListScraper:
             status=200,
         )
 
-        from animator_credit_monitor.scraper import AniListScraper
         scraper = AniListScraper()
         results = scraper.fetch_works("存在しない人")
 
@@ -221,7 +238,6 @@ class TestAniListScraper:
             body=ConnectionError("Connection refused"),
         )
 
-        from animator_credit_monitor.scraper import AniListScraper
         scraper = AniListScraper()
         results = scraper.fetch_works("テスト")
 
