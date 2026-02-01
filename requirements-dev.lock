@@ -22,8 +22,15 @@ idna==3.11
     # via requests
 iniconfig==2.3.0
     # via pytest
+librt==0.7.8
+    # via mypy
+mypy==1.19.1
+mypy-extensions==1.1.0
+    # via mypy
 packaging==26.0
     # via pytest
+pathspec==1.0.4
+    # via mypy
 pluggy==1.6.0
     # via pytest
 pygments==2.19.2
@@ -37,10 +44,19 @@ requests==2.32.5
     # via animator-credit-monitor
     # via responses
 responses==0.25.8
+ruff==0.14.14
 soupsieve==2.8.3
     # via beautifulsoup4
+types-beautifulsoup4==4.12.0.20250516
+types-html5lib==1.1.11.20251117
+    # via types-beautifulsoup4
+types-requests==2.32.4.20260107
+types-webencodings==0.5.0.20251108
+    # via types-html5lib
 typing-extensions==4.15.0
     # via beautifulsoup4
+    # via mypy
 urllib3==2.6.3
     # via requests
     # via responses
+    # via types-requests

@@ -1,5 +1,6 @@
-from animator_credit_monitor.notifier import ConsoleNotifier, Notifier
 import pytest
+
+from animator_credit_monitor.notifier import ConsoleNotifier, Notifier
 
 
 class TestNotifier:
