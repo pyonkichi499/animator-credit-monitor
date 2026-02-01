@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from animator_credit_monitor.history import HistoryManager
 from animator_credit_monitor.notifier import ConsoleNotifier
-from animator_credit_monitor.scraper import BangumiScraper, SakugaWikiScraper
+from animator_credit_monitor.scraper import AniListScraper, BangumiScraper, SakugaWikiScraper
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,8 @@ def cli() -> None:
 @cli.command()
 @click.option("--dry-run", is_flag=True, help="Check for changes without saving state.")
 @click.option("--bangumi-only", is_flag=True, help="Only check Bangumi.")
-@click.option("--wiki-only", is_flag=True, help="Only check Sakuga@wiki.")
-def check(dry_run: bool, bangumi_only: bool, wiki_only: bool) -> None:
+@click.option("--anilist-only", is_flag=True, help="Only check AniList.")
+def check(dry_run: bool, bangumi_only: bool, anilist_only: bool) -> None:
     """Check for new animation credits."""
     setup_logging()
 
@@ -46,8 +46,8 @@ def check(dry_run: bool, bangumi_only: bool, wiki_only: bool) -> None:
         click.echo("Error: TARGET_BANGUMI_ID must be set for --bangumi-only")
         sys.exit(1)
 
-    if wiki_only and not target_name:
-        click.echo("Error: TARGET_NAME must be set for --wiki-only")
+    if anilist_only and not target_name:
+        click.echo("Error: TARGET_NAME must be set for --anilist-only")
         sys.exit(1)
 
     history = HistoryManager(data_dir=Path(data_dir))
@@ -55,7 +55,7 @@ def check(dry_run: bool, bangumi_only: bool, wiki_only: bool) -> None:
     found_new = False
 
     # Bangumi check
-    if not wiki_only and bangumi_id:
+    if not anilist_only and bangumi_id:
         click.echo(f"Checking Bangumi (person ID: {bangumi_id})...")
         scraper = BangumiScraper()
         works = scraper.fetch_works(bangumi_id)
@@ -73,24 +73,35 @@ def check(dry_run: bool, bangumi_only: bool, wiki_only: bool) -> None:
         else:
             click.echo("  No data retrieved from Bangumi.")
 
-    # Sakuga@wiki check
+    # AniList check (with Sakuga@wiki fallback attempt)
     if not bangumi_only and target_name:
+        # Try Sakuga@wiki first, fall back to AniList
         click.echo(f"Checking Sakuga@wiki (name: {target_name})...")
         scraper_wiki = SakugaWikiScraper()
         results = scraper_wiki.search(target_name)
 
         if results:
-            diff = history.detect_diff(f"sakugawiki_{target_name}", results)
+            source_label = "作画@wiki"
+            source_key = f"sakugawiki_{target_name}"
+        else:
+            click.echo("  Sakuga@wiki unavailable, falling back to AniList...")
+            scraper_anilist = AniListScraper()
+            results = scraper_anilist.fetch_works(target_name)
+            source_label = "AniList"
+            source_key = f"anilist_{target_name}"
+
+        if results:
+            diff = history.detect_diff(source_key, results)
             if diff:
                 found_new = True
                 notifier.notify(
-                    "新しいクレジット (作画@wiki)",
-                    _format_wiki_diff(diff),
+                    f"新しいクレジット ({source_label})",
+                    _format_anilist_diff(diff) if source_label == "AniList" else _format_wiki_diff(diff),
                 )
             if not dry_run:
-                history.save(f"sakugawiki_{target_name}", results)
+                history.save(source_key, results)
         else:
-            click.echo("  No data retrieved from Sakuga@wiki.")
+            click.echo(f"  No data retrieved from {source_label}.")
 
     if not found_new:
         click.echo("No new credits found.")
@@ -119,6 +130,21 @@ def _format_wiki_diff(diff: list[dict]) -> str:
         line = f"  - {title}"
         if url:
             line += f" ({url})"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _format_anilist_diff(diff: list[dict]) -> str:
+    lines = []
+    for item in diff:
+        title = item.get("title", "Unknown")
+        role = item.get("role", "")
+        date = item.get("date", "")
+        line = f"  - {title}"
+        if role:
+            line += f" [{role}]"
+        if date:
+            line += f" ({date})"
         lines.append(line)
     return "\n".join(lines)
 
