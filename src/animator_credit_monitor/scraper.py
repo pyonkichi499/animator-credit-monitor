@@ -4,7 +4,7 @@ import time
 from urllib.parse import urljoin
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class BangumiScraper:
     def fetch_works(self, person_id: str) -> list[dict]:
         """Fetch all works for a person from Bangumi, handling pagination."""
         all_works: list[dict] = []
-        url = f"{BASE_URL_BANGUMI}/person/{person_id}/works"
+        url: str | None = f"{BASE_URL_BANGUMI}/person/{person_id}/works"
 
         try:
             page = 1
@@ -71,7 +71,7 @@ class BangumiScraper:
 
         return works
 
-    def _parse_item(self, item: BeautifulSoup) -> dict | None:
+    def _parse_item(self, item: Tag) -> dict | None:
         """Parse a single work item."""
         item_id = item.get("id", "")
         if isinstance(item_id, str):
@@ -85,7 +85,11 @@ class BangumiScraper:
 
         title_tag = inner.find("h3")
         title_link = title_tag.find("a", class_="l") if title_tag else None
-        title = title_link.get_text(strip=True) if title_link else ""
+        title_cn = title_link.get_text(strip=True) if title_link else ""
+
+        # Japanese title from <small> tag (falls back to Chinese title)
+        small_tag = title_tag.find("small") if title_tag else None
+        title = small_tag.get_text(strip=True) if small_tag else title_cn
 
         info_tag = inner.find("p", class_="info")
         info = info_tag.get_text(strip=True) if info_tag else ""
@@ -96,6 +100,7 @@ class BangumiScraper:
         return {
             "id": subject_id,
             "title": title,
+            "title_cn": title_cn,
             "role": role,
             "info": info,
         }
@@ -159,13 +164,91 @@ class SakugaWikiScraper:
             if not link:
                 continue
 
-            href = link.get("href", "")
+            href = str(link.get("href", ""))
             full_url = urljoin(f"{BASE_URL_SAKUGAWIKI}/", href)
             title = link.get_text(strip=True)
 
             results.append({
                 "title": title,
                 "url": full_url,
+            })
+
+        return results
+
+
+ANILIST_API_URL = "https://graphql.anilist.co"
+
+ANILIST_QUERY = """
+query ($search: String!) {
+  Staff(search: $search) {
+    id
+    name {
+      full
+      native
+    }
+    staffMedia(sort: START_DATE_DESC, perPage: 25) {
+      edges {
+        staffRole
+        node {
+          id
+          title {
+            romaji
+            native
+          }
+          startDate {
+            year
+            month
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+class AniListScraper:
+    def fetch_works(self, name: str) -> list[dict]:
+        """Fetch staff credits from AniList GraphQL API."""
+        try:
+            logger.info("Fetching AniList credits for: %s", name)
+            resp = requests.post(
+                ANILIST_API_URL,
+                json={"query": ANILIST_QUERY, "variables": {"search": name}},
+                timeout=30,
+            )
+            resp.raise_for_status()
+
+            data = resp.json()
+            staff = data.get("data", {}).get("Staff")
+            if not staff:
+                logger.warning("No staff found on AniList for: %s", name)
+                return []
+
+            return self._parse_edges(staff["staffMedia"]["edges"])
+
+        except (requests.RequestException, ConnectionError) as e:
+            logger.error("Failed to fetch AniList credits: %s", e)
+            return []
+
+    def _parse_edges(self, edges: list[dict]) -> list[dict]:
+        """Parse staff media edges into a flat list."""
+        results: list[dict] = []
+        for edge in edges:
+            node = edge.get("node", {})
+            title_data = node.get("title", {})
+            start_date = node.get("startDate", {})
+
+            year = start_date.get("year")
+            month = start_date.get("month")
+            date = f"{year}-{month:02d}" if year and month else ""
+
+            results.append({
+                "id": str(node.get("id", "")),
+                "title": title_data.get("native", "") or title_data.get("romaji", ""),
+                "title_romaji": title_data.get("romaji", ""),
+                "role": edge.get("staffRole", ""),
+                "date": date,
             })
 
         return results
