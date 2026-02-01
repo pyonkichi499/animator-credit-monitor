@@ -176,6 +176,24 @@ class SakugaWikiScraper:
         return results
 
 
+ANILIST_ROLE_MAP: dict[str, str] = {
+    "Key Animation": "原画",
+    "2nd Key Animation": "第二原画",
+    "Animation Director": "作画監督",
+    "Chief Animation Director": "総作画監督",
+    "Assistant Animation Director": "作画監督補佐",
+    "In-Between Animation": "動画",
+    "Character Design": "キャラクターデザイン",
+    "Sub Character Design": "サブキャラクターデザイン",
+    "Director": "監督",
+    "Episode Director": "演出",
+    "Storyboard": "絵コンテ",
+    "Design": "デザイン",
+    "Action Animation Director": "アクション作画監督",
+    "Mechanical Animation Director": "メカ作画監督",
+    "Effects Animation": "エフェクト作画",
+}
+
 ANILIST_API_URL = "https://graphql.anilist.co"
 
 ANILIST_QUERY = """
@@ -247,8 +265,22 @@ class AniListScraper:
                 "id": str(node.get("id", "")),
                 "title": title_data.get("native", "") or title_data.get("romaji", ""),
                 "title_romaji": title_data.get("romaji", ""),
-                "role": edge.get("staffRole", ""),
+                "role": self._translate_role(edge.get("staffRole", "")),
                 "date": date,
             })
 
         return results
+
+    @staticmethod
+    def _translate_role(role: str) -> str:
+        """Translate AniList English role name to Japanese."""
+        if not role:
+            return role
+
+        match = re.match(r"^(.+?)\s*(\(.+\))$", role)
+        if match:
+            base, suffix = match.group(1), match.group(2)
+            translated = ANILIST_ROLE_MAP.get(base, base)
+            return f"{translated} {suffix}"
+
+        return ANILIST_ROLE_MAP.get(role, role)
