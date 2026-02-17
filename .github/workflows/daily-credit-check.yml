@@ -9,9 +9,20 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Restore history cache
+        id: history-cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            history-${{ github.ref_name }}-
 
       - name: Setup Rye
         uses: eifinger/setup-rye@v4
@@ -43,4 +54,15 @@ jobs:
           LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
           LINE_NOTIFY_API_URL: ${{ secrets.LINE_NOTIFY_API_URL }}
           LINE_MESSAGE_TEMPLATE: ${{ secrets.LINE_MESSAGE_TEMPLATE }}
+          DATA_DIR: data
         run: rye run animator-credit-monitor check
+
+      - name: Ensure history directory exists
+        run: mkdir -p data
+
+      - name: Save history cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
