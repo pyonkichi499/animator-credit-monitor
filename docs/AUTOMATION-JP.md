@@ -72,3 +72,52 @@ WantedBy=timers.target
 ```bash
 systemctl --user enable --now animator-monitor.timer
 ```
+
+## GitHub Actions（定期実行）
+
+このリポジトリには `.github/workflows/daily-credit-check.yml` を用意している。
+
+### セットアップ
+
+1. GitHub リポジトリの **Settings → Secrets and variables → Actions** を開く。
+2. ワークフローで使う Secrets を登録する:
+   - 監視対象として必要:
+     - `TARGET_NAME`（AniList の name ベース監視）
+     - `TARGET_BANGUMI_ID`（Bangumi も監視する場合は設定）
+   - 通知先選択:
+     - `NOTIFIER`（`console` / `email` / `line`）
+     - `NOTIFIERS`（任意。複数通知先。例: `email,line`）
+   - `NOTIFIER=email` の場合:
+     - `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_TO`
+     - `SMTP_USER`, `SMTP_PASS`（認証が必要な場合）
+     - `SMTP_USE_TLS`（例: `true`）
+     - `EMAIL_SUBJECT_TEMPLATE`, `EMAIL_BODY_TEMPLATE`（任意。`{title}` / `{message}` プレースホルダ対応）
+   - `NOTIFIER=line` の場合:
+     - `LINE_NOTIFY_TOKEN`
+     - `LINE_NOTIFY_API_URL`（任意。未設定時は互換エンドポイントを使用）
+     - `LINE_MESSAGE_TEMPLATE`（任意。`{title}` / `{message}` プレースホルダ対応）
+
+3. **Actions → Daily Credit Check → Run workflow** で手動実行し、初回動作確認を行う。
+
+### 認証情報の扱い
+
+- 認証情報は必ず **GitHub Secrets** に保存する（リポジトリへコミットしない）。
+- ワークフローでは実行時の環境変数としてのみ注入される。
+- 認証情報が不正な場合はCLIが設定/通知エラーを明示して終了する。
+
+
+### SendGrid かんたん設定（`NOTIFIER=email` 用）
+
+SendGrid SMTP で送る場合は、Secrets を次の値で設定するとよい。
+
+```text
+NOTIFIER=email
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_USE_TLS=true
+SMTP_USER=apikey
+SMTP_PASS=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+`SMTP_FROM` は SendGrid 側で認証済みの送信元（Sender Identity / Domain Authentication）を使うこと。
+

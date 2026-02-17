@@ -1,0 +1,46 @@
+name: Daily Credit Check
+
+on:
+  schedule:
+    # 09:00 JST = 00:00 UTC
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rye
+        uses: eifinger/setup-rye@v4
+
+      - name: Install dependencies
+        run: rye sync
+
+      - name: Run credit monitor
+        env:
+          TARGET_BANGUMI_ID: ${{ secrets.TARGET_BANGUMI_ID }}
+          TARGET_NAME: ${{ secrets.TARGET_NAME }}
+
+          # Notification backend: console | email | line
+          NOTIFIER: ${{ secrets.NOTIFIER }}
+          NOTIFIERS: ${{ secrets.NOTIFIERS }}
+
+          # Email notifier settings (when NOTIFIER=email)
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_USE_TLS: ${{ secrets.SMTP_USE_TLS }}
+          EMAIL_SUBJECT_TEMPLATE: ${{ secrets.EMAIL_SUBJECT_TEMPLATE }}
+          EMAIL_BODY_TEMPLATE: ${{ secrets.EMAIL_BODY_TEMPLATE }}
+
+          # LINE notifier settings (when NOTIFIER=line)
+          LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
+          LINE_NOTIFY_API_URL: ${{ secrets.LINE_NOTIFY_API_URL }}
+          LINE_MESSAGE_TEMPLATE: ${{ secrets.LINE_MESSAGE_TEMPLATE }}
+        run: rye run animator-credit-monitor check
