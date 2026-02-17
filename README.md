@@ -7,7 +7,8 @@
 | Source | URL | Description |
 |---|---|---|
 | Bangumi | `bangumi.tv/person/{ID}` | 中国のアニメデータベース。作品リスト (Filmography) の差分を監視 |
-| 作画@wiki | `w.atwiki.jp/sakuga/` | 日本の作画情報 wiki。キーワード検索結果を監視 |
+| AniList | `graphql.anilist.co` | スタッフクレジットを API 経由で取得して差分監視 |
+| 作画@wiki | `w.atwiki.jp/sakuga/` | 日本の作画情報 wiki。※現在は Cloudflare 403 により実運用では利用不可 |
 
 ## Setup
 
@@ -38,8 +39,30 @@ Edit `.env`:
 # Bangumi person ID (find it from the URL: bangumi.tv/person/{THIS_NUMBER})
 TARGET_BANGUMI_ID=12345
 
-# Animator name for Sakuga@wiki search
+# Animator name for AniList search
 TARGET_NAME=アニメーター名
+
+# Notification backend: console | email | line
+NOTIFIER=console
+
+# Email notifier settings (required when NOTIFIER=email)
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_FROM=from@example.com
+SMTP_TO=to@example.com
+SMTP_USER=
+SMTP_PASS=
+SMTP_USE_TLS=true
+# Optional templates (variables: {title}, {message})
+EMAIL_SUBJECT_TEMPLATE=[ACM] {title}
+EMAIL_BODY_TEMPLATE={title}\n\n{message}
+
+# LINE notifier settings (required when NOTIFIER=line)
+LINE_NOTIFY_TOKEN=your_token
+# Optional
+LINE_NOTIFY_API_URL=https://notify-api.line.me/api/notify
+# Optional template (variables: {title}, {message})
+LINE_MESSAGE_TEMPLATE={title}\n{message}
 ```
 
 ## Usage
@@ -59,15 +82,123 @@ rye run animator-credit-monitor check --dry-run
 # Check only Bangumi
 rye run animator-credit-monitor check --bangumi-only
 
-# Check only Sakuga@wiki
-rye run animator-credit-monitor check --wiki-only
+# Check only AniList/name-based source
+rye run animator-credit-monitor check --anilist-only
 ```
+
+> 現状メモ: name ベースの監視は AniList を直接利用します。
+> 作画@wiki は現在 403 のため、運用対象から外しています。
 
 ### Show help
 
 ```bash
 rye run animator-credit-monitor --help
 rye run animator-credit-monitor check --help
+```
+
+## Notifications
+
+- `NOTIFIER=console` (default): print to stdout
+- `NOTIFIER=email`: send via SMTP (`SMTP_*` required)
+- `NOTIFIER=line`: send via LINE Notify compatible API (`LINE_NOTIFY_TOKEN` required)
+- `NOTIFIERS=email,line`: fan-out to both email and LINE in one run
+- Message templates can use `{title}` and `{message}` placeholders
+- Example templates are provided under `templates/`:
+  - `templates/email_subject.template.txt`
+  - `templates/email_body.template.txt`
+  - `templates/line_message.template.txt`
+
+### Notification message format
+
+- Title: `新しいクレジット (Bangumi|AniList)`
+- Body:
+  - First line: `検知件数: N`
+  - Following lines: numbered credit entries (`1. ...`, `2. ...`)
+- Templates can use `{title}` and `{message}` to wrap/reformat the standardized payload.
+
+## GitHub Actions (Scheduled Run)
+
+A workflow is provided at `.github/workflows/daily-credit-check.yml`.
+
+1. Open **Settings → Secrets and variables → Actions** in your GitHub repository.
+2. Add required secrets (at minimum):
+   - `TARGET_NAME` (for AniList name-based monitoring)
+   - `NOTIFIER` (`email` or `line`)
+   - or `NOTIFIERS` (`email,line`) to send to both
+3. Add notifier-specific secrets:
+   - Email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_TO`, `SMTP_USER`, `SMTP_PASS`, `SMTP_USE_TLS`
+   - LINE: `LINE_NOTIFY_TOKEN` (optional: `LINE_NOTIFY_API_URL`)
+4. Run from **Actions → Daily Credit Check → Run workflow** for first validation.
+
+### Secrets templates (GitHub Actions)
+
+#### Email notifier (`NOTIFIER=email`)
+
+```text
+NOTIFIER=email
+TARGET_NAME=監視対象名
+TARGET_BANGUMI_ID=12345
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_FROM=from@example.com
+SMTP_TO=to@example.com
+SMTP_USER=your_user
+SMTP_PASS=your_password
+SMTP_USE_TLS=true
+EMAIL_SUBJECT_TEMPLATE=[ACM] {title}
+EMAIL_BODY_TEMPLATE={title}\n\n{message}
+```
+
+#### Email notifier (SendGrid preset)
+
+```text
+NOTIFIER=email
+TARGET_NAME=監視対象名
+TARGET_BANGUMI_ID=12345
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_USE_TLS=true
+SMTP_FROM=verified-sender@example.com
+SMTP_TO=destination@example.com
+SMTP_USER=apikey
+SMTP_PASS=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+EMAIL_SUBJECT_TEMPLATE=[ACM] {title}
+EMAIL_BODY_TEMPLATE={title}\n\n{message}
+```
+
+> `SMTP_USER=apikey` + `SMTP_PASS=<SendGrid API key>` がSendGridのSMTP認証セットです。
+> 同じ内容は `templates/sendgrid_github_secrets.template.txt` にもあります。
+
+#### LINE notifier (`NOTIFIER=line`)
+
+```text
+NOTIFIER=line
+TARGET_NAME=監視対象名
+TARGET_BANGUMI_ID=12345
+LINE_NOTIFY_TOKEN=your_token
+LINE_NOTIFY_API_URL=https://notify-api.line.me/api/notify
+LINE_MESSAGE_TEMPLATE={title}\n{message}
+```
+
+#### Email + LINE notifier (both)
+
+```text
+NOTIFIERS=email,line
+TARGET_NAME=監視対象名
+TARGET_BANGUMI_ID=12345
+
+# Email side
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_FROM=verified-sender@example.com
+SMTP_TO=destination@example.com
+SMTP_USER=apikey
+SMTP_PASS=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SMTP_USE_TLS=true
+
+# LINE side
+LINE_NOTIFY_TOKEN=your_token
+LINE_NOTIFY_API_URL=https://notify-api.line.me/api/notify
 ```
 
 ## Testing
