@@ -26,7 +26,9 @@ The scraper depends on the following CSS selectors. If Bangumi changes their HTM
 | `ul.search-list` | Search results container | `_parse_search_results()` |
 | `li > a` | Result link + title | `_parse_search_results()` |
 
-**Note:** Sakuga@wiki is currently blocked by Cloudflare (HTTP 403). All requests return 403 regardless of User-Agent headers. When this happens, the system automatically falls back to AniList API.
+**Note:** Sakuga@wiki is currently blocked by Cloudflare (HTTP 403). All requests return 403 regardless of User-Agent headers.
+
+**Operationally, name-based monitoring now uses AniList directly.** Sakuga@wiki scraping code remains for reference/possible future recovery, but it is excluded from the normal check flow while 403 persists.
 
 ### AniList (`scraper.py` - `AniListScraper`)
 
@@ -99,6 +101,15 @@ Bangumi does not set `charset` in its HTTP response headers, causing `requests` 
 
 If garbled text appears, check that this encoding override is still present in `scraper.py`.
 
+## Notification Backends
+
+Implemented and planned backends:
+
+- **ConsoleNotifier** (implemented): stdout output, useful for local/dev runs.
+- **EmailNotifier** (implemented): SMTP delivery via `SMTP_*` environment variables. Supports `EMAIL_SUBJECT_TEMPLATE` and `EMAIL_BODY_TEMPLATE`.
+- **LineNotifier** (implemented): LINE Notify compatible API via `LINE_NOTIFY_TOKEN`. Supports `LINE_MESSAGE_TEMPLATE`.
+- **Discord/Slack webhook** (planned): recommended next step for team operations.
+
 ## Adding a New Notification Backend
 
 1. Create a new class that inherits from `Notifier` in `src/animator_credit_monitor/notifier.py`:
@@ -123,3 +134,14 @@ rye run ruff check src/ tests/    # Lint check
 rye run ruff check --fix src/ tests/  # Auto-fix lint issues
 rye run mypy src/                 # Type check
 ```
+
+## Notification Message Format
+
+Current payload policy:
+
+- Title: source-specific (`新しいクレジット (Bangumi)` / `新しいクレジット (AniList)`)
+- Body first line: detected count (`検知件数: N`)
+- Body following lines: numbered entries with role/date/info metadata
+
+This standardized payload is passed to all notifier backends. Each backend can further wrap it via template variables `{title}` and `{message}`.
+

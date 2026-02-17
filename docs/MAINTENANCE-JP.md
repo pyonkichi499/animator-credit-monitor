@@ -26,7 +26,9 @@
 | `ul.search-list` | 検索結果コンテナ | `_parse_search_results()` |
 | `li > a` | 結果リンク + タイトル | `_parse_search_results()` |
 
-**注意:** 作画@wiki は現在 Cloudflare にブロックされている（HTTP 403）。User-Agentヘッダーに関係なく全リクエストが403を返す。この場合、システムは自動的に AniList API にフォールバックする。
+**注意:** 作画@wiki は現在 Cloudflare にブロックされている（HTTP 403）。User-Agentヘッダーに関係なく全リクエストが403を返す。
+
+**運用上、name ベース監視は現在 AniList を直接利用する。** 作画@wiki のスクレイピング実装は将来の復旧に備えて残しているが、403が継続している間は通常チェックフローから除外している。
 
 ### AniList (`scraper.py` - `AniListScraper`)
 
@@ -99,6 +101,15 @@ Bangumi は HTTPレスポンスヘッダーに `charset` を設定していな�
 
 文字化けが発生した場合、`scraper.py` にこのエンコーディングオーバーライドが存在するか確認すること。
 
+## 通知バックエンド
+
+実装済み・今後実装予定の通知先は以下。
+
+- **ConsoleNotifier**（実装済み）: 標準出力。ローカル開発向け。
+- **EmailNotifier**（実装済み）: `SMTP_*` 環境変数でSMTP送信。`EMAIL_SUBJECT_TEMPLATE` / `EMAIL_BODY_TEMPLATE` に対応。
+- **LineNotifier**（実装済み）: `LINE_NOTIFY_TOKEN` を使った LINE Notify 互換 API 送信。`LINE_MESSAGE_TEMPLATE` に対応。
+- **Discord/Slack webhook**（未実装）: チーム運用向けの次候補。
+
 ## 新しい通知バックエンドの追加
 
 1. `src/animator_credit_monitor/notifier.py` で `Notifier` を継承した新しいクラスを作成:
@@ -123,3 +134,14 @@ rye run ruff check src/ tests/    # lint チェック
 rye run ruff check --fix src/ tests/  # lint 自動修正
 rye run mypy src/                 # 型チェック
 ```
+
+## 通知メッセージ形式
+
+現在の通知ペイロード方針:
+
+- タイトル: ソース別（`新しいクレジット (Bangumi)` / `新しいクレジット (AniList)`）
+- 本文1行目: 検知件数（`検知件数: N`）
+- 本文2行目以降: 連番付きエントリ（役職/日付/付帯情報を付与）
+
+この標準化ペイロードを全 notifier に渡し、必要に応じて `{title}` / `{message}` テンプレートでチャネル別整形を行う。
+
