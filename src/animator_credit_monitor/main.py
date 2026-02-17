@@ -69,7 +69,7 @@ def _build_email_notifier_from_env() -> EmailNotifier:
 
 def _build_line_notifier_from_env() -> LineNotifier:
     token = os.environ.get("LINE_NOTIFY_TOKEN", "").strip()
-    api_url = os.environ.get("LINE_NOTIFY_API_URL", "https://notify-api.line.me/api/notify").strip()
+    api_url = os.environ.get("LINE_NOTIFY_API_URL", "").strip() or "https://notify-api.line.me/api/notify"
     message_template = os.environ.get("LINE_MESSAGE_TEMPLATE", "{title}\n{message}")
     if not token:
         raise ValueError("LINE_NOTIFY_TOKEN is required when using line notifier")

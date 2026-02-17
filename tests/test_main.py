@@ -203,6 +203,41 @@ class TestCLI:
             message_template="{title}\n{message}",
         )
 
+    @patch("animator_credit_monitor.main.LineNotifier")
+    @patch("animator_credit_monitor.main.AniListScraper")
+    @patch("animator_credit_monitor.main.BangumiScraper")
+    @patch("animator_credit_monitor.main.HistoryManager")
+    def test_NOTIFIER_line設定でAPI_URLが空文字でもデフォルトURLを使う(
+        self,
+        mock_history_cls: MagicMock,
+        mock_bangumi_cls: MagicMock,
+        mock_anilist_cls: MagicMock,
+        mock_line_notifier_cls: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        mock_history_cls.return_value.detect_diff.return_value = []
+        mock_bangumi_cls.return_value.fetch_works.return_value = []
+        mock_anilist_cls.return_value.fetch_works.return_value = []
+
+        env = {
+            "TARGET_BANGUMI_ID": "12345",
+            "TARGET_NAME": "テスト",
+            "DATA_DIR": str(tmp_path),
+            "NOTIFIER": "line",
+            "LINE_NOTIFY_TOKEN": "token",
+            "LINE_NOTIFY_API_URL": "",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            result = runner.invoke(cli, ["check"])
+
+        assert result.exit_code == 0
+        mock_line_notifier_cls.assert_called_once_with(
+            token="token",
+            api_url="https://notify-api.line.me/api/notify",
+            message_template="{title}\n{message}",
+        )
+
     @patch("animator_credit_monitor.main.MultiNotifier")
     @patch("animator_credit_monitor.main.LineNotifier")
     @patch("animator_credit_monitor.main.EmailNotifier")
