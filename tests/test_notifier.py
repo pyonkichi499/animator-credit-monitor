@@ -68,6 +68,23 @@ class TestNotifier:
         assert "本文メッセージ" in sent_msg.get_content()
 
     @patch("animator_credit_monitor.notifier.smtplib.SMTP")
+    def test_EmailNotifierでバックスラッシュnを改行として解釈する(self, mock_smtp_cls: MagicMock) -> None:
+        mock_smtp = MagicMock()
+        mock_smtp_cls.return_value.__enter__.return_value = mock_smtp
+
+        notifier = EmailNotifier(
+            host="smtp.example.com",
+            port=587,
+            from_addr="from@example.com",
+            to_addr="to@example.com",
+            body_template="{title}\\n\\n{message}",
+        )
+        notifier.notify("新規", "本文メッセージ")
+
+        sent_msg = mock_smtp.send_message.call_args.args[0]
+        assert "新規\n\n本文メッセージ" in sent_msg.get_content()
+
+    @patch("animator_credit_monitor.notifier.smtplib.SMTP")
     def test_EmailNotifierで未知のテンプレート変数はエラー(self, mock_smtp_cls: MagicMock) -> None:
         mock_smtp = MagicMock()
         mock_smtp_cls.return_value.__enter__.return_value = mock_smtp
@@ -126,6 +143,17 @@ class TestNotifier:
 
         kwargs = mock_post.call_args.kwargs
         assert kwargs["data"]["message"] == "[通知]タイトル => メッセージ"
+
+    @patch("animator_credit_monitor.notifier.requests.post")
+    def test_LineNotifierでバックスラッシュnを改行として解釈する(self, mock_post: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_post.return_value = mock_resp
+
+        notifier = LineNotifier(token="token123", message_template="{title}\\n{message}")
+        notifier.notify("タイトル", "メッセージ")
+
+        kwargs = mock_post.call_args.kwargs
+        assert kwargs["data"]["message"] == "タイトル\nメッセージ"
 
     @patch("animator_credit_monitor.notifier.requests.post")
     def test_LineNotifierで未知のテンプレート変数はエラー(self, mock_post: MagicMock) -> None:

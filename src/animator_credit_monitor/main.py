@@ -105,6 +105,10 @@ def check(dry_run: bool, bangumi_only: bool, anilist_only: bool) -> None:
     """Check for new animation credits."""
     setup_logging()
 
+    if bangumi_only and anilist_only:
+        click.echo("Error: --bangumi-only and --anilist-only cannot be used together")
+        sys.exit(1)
+
     bangumi_id = os.environ.get("TARGET_BANGUMI_ID", "")
     target_name = os.environ.get("TARGET_NAME", "")
     data_dir = os.environ.get("DATA_DIR", "data")

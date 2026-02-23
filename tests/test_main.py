@@ -107,6 +107,20 @@ class TestCLI:
         assert result.exit_code == 0
         mock_anilist_cls.return_value.fetch_works.assert_not_called()
 
+    def test_bangumi_onlyとanilist_only同時指定はエラー終了する(
+        self,
+        runner: CliRunner,
+    ) -> None:
+        env = {
+            "TARGET_BANGUMI_ID": "12345",
+            "TARGET_NAME": "テスト",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            result = runner.invoke(cli, ["check", "--bangumi-only", "--anilist-only"])
+
+        assert result.exit_code != 0
+        assert "--bangumi-only and --anilist-only" in result.output
+
     @patch("animator_credit_monitor.main.AniListScraper")
     @patch("animator_credit_monitor.main.BangumiScraper")
     @patch("animator_credit_monitor.main.HistoryManager")

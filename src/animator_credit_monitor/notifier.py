@@ -5,9 +5,18 @@ from email.message import EmailMessage
 import requests
 
 
+def _decode_template_escapes(template: str) -> str:
+    return (
+        template.replace(r"\r\n", "\r\n")
+        .replace(r"\n", "\n")
+        .replace(r"\r", "\r")
+        .replace(r"\t", "\t")
+    )
+
+
 def _render_template(template: str, title: str, message: str) -> str:
     try:
-        return template.format(title=title, message=message)
+        return _decode_template_escapes(template).format(title=title, message=message)
     except KeyError as e:
         missing = e.args[0]
         raise ValueError(f"Unknown template variable: {missing}") from e
