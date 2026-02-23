@@ -40,23 +40,23 @@ rye run animator-credit-monitor --help      # CLIヘルプ表示
 ```bash
 animator-credit-monitor check               # 全ソースチェック
 animator-credit-monitor check --bangumi-only # Bangumiのみ
-animator-credit-monitor check --anilist-only # AniListのみ
+animator-credit-monitor check --anilist-only # nameベースソースのみ（AniList直利用）
 animator-credit-monitor check --dry-run      # 状態保存なしでチェック
 ```
 
 ## アーキテクチャ
-- **Notifier:** 抽象基底クラス（`Notifier`）に `ConsoleNotifier` をデフォルト実装。新しいサブクラスを実装することでDiscord/メール等に差し替え可能。
+- **Notifier:** 抽象基底クラス（`Notifier`）に `ConsoleNotifier`（デフォルト）、`EmailNotifier`、`LineNotifier` を実装。
 - **Scraper:** 3つのスクレイパークラス:
   - `BangumiScraper` — bangumi.tvの人物作品ページをスクレイプ。`<small>` タグから日本語タイトルを取得し、ない場合は中国語にフォールバック。`title_cn` フィールドを保持。
   - `AniListScraper` — AniList GraphQL API使用（認証不要）。日本語タイトル、ローマ字、役割、日付を返却。
   - `SakugaWikiScraper` — w.atwiki.jp/sakuga を検索（現在Cloudflare 403でブロック中）。
-- **フォールバック:** 作画@wiki失敗時（403）は自動的にAniList APIにフォールバック。
+- **nameベースソースの実動作:** 作画@wiki が403でブロック中のため、nameベースチェックは AniList を直接利用する。作画@wiki スクレイパーは将来復旧に備えて保持。
 - **History:** `HistoryManager` が `data/` 内のJSONベースの状態保存と差分検知を担当。履歴ファイルはソースID付き（例: `bangumi_50763_history.json`）で、アニメーター切替時にデータが混在しない。
 - **Main:** Click CLIがオーケストレーション: 設定読込 → スクレイプ → 差分検知 → 変更があれば通知。
 
 ## 環境変数（.env）
 - `TARGET_BANGUMI_ID` - 監視対象のBangumi人物ID
-- `TARGET_NAME` - AniList/作画@wiki検索用のアニメーター名
+- `TARGET_NAME` - nameベース監視用のアニメーター名（現状は実質AniList）
 
 ## データ形式
 
@@ -67,7 +67,7 @@ animator-credit-monitor check --dry-run      # 状態保存なしでチェック
 
 ### AniList作品
 ```json
-{"id": "180516", "title": "ウマ娘 シンデレラグレイ", "title_romaji": "Uma Musume: Cinderella Gray", "role": "Key Animation (OP)", "date": "2025-04"}
+{"id": "180516", "title": "ウマ娘 シンデレラグレイ", "title_romaji": "Uma Musume: Cinderella Gray", "role": "原画 (OP)", "date": "2025-04"}
 ```
 
 ## ドキュメント管理
@@ -82,4 +82,4 @@ animator-credit-monitor check --dry-run      # 状態保存なしでチェック
 - テスト名は日本語: `test_{分かりやすい日本語のシナリオ名}`
 - `responses` ライブラリでHTTPモック
 - `tests/fixtures/` にHTML解析テスト用フィクスチャ配置
-- 全29テストで全モジュールをカバー
+- CLI / scraper / history / notifier モジュールをテストでカバー

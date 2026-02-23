@@ -40,23 +40,23 @@ rye run animator-credit-monitor --help      # Show CLI help
 ```bash
 animator-credit-monitor check               # Check all sources
 animator-credit-monitor check --bangumi-only # Bangumi only
-animator-credit-monitor check --anilist-only # AniList only
+animator-credit-monitor check --anilist-only # Name-based source only (AniList direct)
 animator-credit-monitor check --dry-run      # Check without saving state
 ```
 
 ## Architecture
-- **Notifier:** Abstract base class (`Notifier`) with `ConsoleNotifier` default implementation. Swap to Discord/email by implementing new subclass.
+- **Notifier:** Abstract base class (`Notifier`) with `ConsoleNotifier` (default), `EmailNotifier`, and `LineNotifier` implementations.
 - **Scraper:** Three scraper classes:
   - `BangumiScraper` — Scrapes bangumi.tv person works page. Returns Japanese titles from `<small>` tag, falling back to Chinese titles. Includes `title_cn` field.
   - `AniListScraper` — Uses AniList GraphQL API (no auth required). Returns Japanese titles, romaji, roles, and dates.
   - `SakugaWikiScraper` — Searches w.atwiki.jp/sakuga (currently blocked by Cloudflare 403).
-- **Fallback:** When Sakuga@wiki fails (403), automatically falls back to AniList API.
+- **Name-based source behavior:** Name-based checks use AniList directly while Sakuga@wiki remains blocked (403). Sakuga@wiki scraper code is kept only for possible future recovery.
 - **History:** `HistoryManager` handles JSON-based state persistence in `data/` and diff detection. History files are named with source ID (e.g., `bangumi_50763_history.json`) to avoid mixing data when switching animators.
 - **Main:** Click CLI orchestrates: load config → scrape → detect diff → notify if changes found.
 
 ## Environment Variables (.env)
 - `TARGET_BANGUMI_ID` - Bangumi person ID to monitor
-- `TARGET_NAME` - Animator name for AniList/Sakuga@wiki search
+- `TARGET_NAME` - Animator name for name-based monitoring (currently effectively AniList)
 
 ## Data Format
 
@@ -67,7 +67,7 @@ animator-credit-monitor check --dry-run      # Check without saving state
 
 ### AniList works
 ```json
-{"id": "180516", "title": "ウマ娘 シンデレラグレイ", "title_romaji": "Uma Musume: Cinderella Gray", "role": "Key Animation (OP)", "date": "2025-04"}
+{"id": "180516", "title": "ウマ娘 シンデレラグレイ", "title_romaji": "Uma Musume: Cinderella Gray", "role": "原画 (OP)", "date": "2025-04"}
 ```
 
 ## Documentation
@@ -82,4 +82,4 @@ animator-credit-monitor check --dry-run      # Check without saving state
 - Test names in Japanese: `test_{descriptive_scenario_in_Japanese}`
 - HTTP mocking with `responses` library
 - Fixtures in `tests/fixtures/` for HTML parsing tests
-- 29 tests covering all modules
+- Tests cover CLI, scraper, history, and notifier modules

@@ -7,8 +7,8 @@ import click
 from dotenv import load_dotenv
 
 from animator_credit_monitor.history import HistoryManager
-from animator_credit_monitor.notifier import ConsoleNotifier
-from animator_credit_monitor.scraper import AniListScraper, BangumiScraper, SakugaWikiScraper
+from animator_credit_monitor.notifier import ConsoleNotifier, EmailNotifier, LineNotifier, MultiNotifier, Notifier
+from animator_credit_monitor.scraper import AniListScraper, BangumiScraper
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,77 @@ def cli() -> None:
     load_dotenv()
 
 
+def _parse_notifier_types() -> list[str]:
+    raw_multi = os.environ.get("NOTIFIERS", "").strip()
+    if raw_multi:
+        return [v.strip().lower() for v in raw_multi.split(",") if v.strip()]
+
+    raw_single = os.environ.get("NOTIFIER", "console").strip().lower()
+    return [raw_single]
+
+
+def _build_email_notifier_from_env() -> EmailNotifier:
+    host = os.environ.get("SMTP_HOST", "").strip()
+    port = os.environ.get("SMTP_PORT", "587").strip()
+    from_addr = os.environ.get("SMTP_FROM", "").strip()
+    to_addr = os.environ.get("SMTP_TO", "").strip()
+    username = os.environ.get("SMTP_USER", "").strip()
+    password = os.environ.get("SMTP_PASS", "").strip()
+    use_tls = os.environ.get("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
+    subject_template = os.environ.get("EMAIL_SUBJECT_TEMPLATE", "{title}")
+    body_template = os.environ.get("EMAIL_BODY_TEMPLATE", "{message}")
+
+    if not host or not from_addr or not to_addr:
+        raise ValueError("SMTP_HOST, SMTP_FROM, SMTP_TO are required when using email notifier")
+
+    try:
+        port_num = int(port)
+    except ValueError as e:
+        raise ValueError("SMTP_PORT must be an integer") from e
+
+    return EmailNotifier(
+        host=host,
+        port=port_num,
+        from_addr=from_addr,
+        to_addr=to_addr,
+        username=username,
+        password=password,
+        use_tls=use_tls,
+        subject_template=subject_template,
+        body_template=body_template,
+    )
+
+
+def _build_line_notifier_from_env() -> LineNotifier:
+    token = os.environ.get("LINE_NOTIFY_TOKEN", "").strip()
+    api_url = os.environ.get("LINE_NOTIFY_API_URL", "").strip() or "https://notify-api.line.me/api/notify"
+    message_template = os.environ.get("LINE_MESSAGE_TEMPLATE", "{title}\n{message}")
+    if not token:
+        raise ValueError("LINE_NOTIFY_TOKEN is required when using line notifier")
+    return LineNotifier(token=token, api_url=api_url, message_template=message_template)
+
+
+def _build_notifier_from_env() -> Notifier:
+    notifier_types = _parse_notifier_types()
+    if not notifier_types:
+        raise ValueError("NOTIFIERS is empty")
+
+    notifiers: list[Notifier] = []
+    for notifier_type in notifier_types:
+        if notifier_type == "console":
+            notifiers.append(ConsoleNotifier())
+        elif notifier_type == "email":
+            notifiers.append(_build_email_notifier_from_env())
+        elif notifier_type == "line":
+            notifiers.append(_build_line_notifier_from_env())
+        else:
+            raise ValueError("Notifier type must be one of: console, email, line")
+
+    if len(notifiers) == 1:
+        return notifiers[0]
+    return MultiNotifier(notifiers)
+
+
 @cli.command()
 @click.option("--dry-run", is_flag=True, help="Check for changes without saving state.")
 @click.option("--bangumi-only", is_flag=True, help="Only check Bangumi.")
@@ -33,6 +104,10 @@ def cli() -> None:
 def check(dry_run: bool, bangumi_only: bool, anilist_only: bool) -> None:
     """Check for new animation credits."""
     setup_logging()
+
+    if bangumi_only and anilist_only:
+        click.echo("Error: --bangumi-only and --anilist-only cannot be used together")
+        sys.exit(1)
 
     bangumi_id = os.environ.get("TARGET_BANGUMI_ID", "")
     target_name = os.environ.get("TARGET_NAME", "")
@@ -50,8 +125,13 @@ def check(dry_run: bool, bangumi_only: bool, anilist_only: bool) -> None:
         click.echo("Error: TARGET_NAME must be set for --anilist-only")
         sys.exit(1)
 
+    try:
+        notifier = _build_notifier_from_env()
+    except ValueError as e:
+        click.echo(f"Error: {e}")
+        sys.exit(1)
+
     history = HistoryManager(data_dir=Path(data_dir))
-    notifier = ConsoleNotifier()
     found_new = False
 
     # Bangumi check
@@ -73,47 +153,37 @@ def check(dry_run: bool, bangumi_only: bool, anilist_only: bool) -> None:
         else:
             click.echo("  No data retrieved from Bangumi.")
 
-    # AniList check (with Sakuga@wiki fallback attempt)
+    # Name-based check (AniList direct)
     if not bangumi_only and target_name:
-        # Try Sakuga@wiki first, fall back to AniList
-        click.echo(f"Checking Sakuga@wiki (name: {target_name})...")
-        scraper_wiki = SakugaWikiScraper()
-        results = scraper_wiki.search(target_name)
+        click.echo(f"Checking AniList (name: {target_name})...")
+        scraper_anilist = AniListScraper()
+        results = scraper_anilist.fetch_works(target_name)
 
         if results:
-            source_label = "作画@wiki"
-            source_key = f"sakugawiki_{target_name}"
-        else:
-            click.echo("  Sakuga@wiki unavailable, falling back to AniList...")
-            scraper_anilist = AniListScraper()
-            results = scraper_anilist.fetch_works(target_name)
-            source_label = "AniList"
             source_key = f"anilist_{target_name}"
-
-        if results:
             diff = history.detect_diff(source_key, results)
             if diff:
                 found_new = True
                 notifier.notify(
-                    f"新しいクレジット ({source_label})",
-                    _format_anilist_diff(diff) if source_label == "AniList" else _format_wiki_diff(diff),
+                    "新しいクレジット (AniList)",
+                    _format_anilist_diff(diff),
                 )
             if not dry_run:
                 history.save(source_key, results)
         else:
-            click.echo(f"  No data retrieved from {source_label}.")
+            click.echo("  No data retrieved from AniList.")
 
     if not found_new:
         click.echo("No new credits found.")
 
 
 def _format_bangumi_diff(diff: list[dict]) -> str:
-    lines = []
-    for item in diff:
+    lines = [f"検知件数: {len(diff)}"]
+    for i, item in enumerate(diff, start=1):
         title = item.get("title", "Unknown")
         role = item.get("role", "")
         info = item.get("info", "")
-        line = f"  - {title}"
+        line = f"{i}. {title}"
         if role:
             line += f" [{role}]"
         if info:
@@ -122,25 +192,13 @@ def _format_bangumi_diff(diff: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _format_wiki_diff(diff: list[dict]) -> str:
-    lines = []
-    for item in diff:
-        title = item.get("title", "Unknown")
-        url = item.get("url", "")
-        line = f"  - {title}"
-        if url:
-            line += f" ({url})"
-        lines.append(line)
-    return "\n".join(lines)
-
-
 def _format_anilist_diff(diff: list[dict]) -> str:
-    lines = []
-    for item in diff:
+    lines = [f"検知件数: {len(diff)}"]
+    for i, item in enumerate(diff, start=1):
         title = item.get("title", "Unknown")
         role = item.get("role", "")
         date = item.get("date", "")
-        line = f"  - {title}"
+        line = f"{i}. {title}"
         if role:
             line += f" [{role}]"
         if date:
