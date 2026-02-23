@@ -54,7 +54,6 @@ jobs:
           LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
           LINE_NOTIFY_API_URL: ${{ secrets.LINE_NOTIFY_API_URL || 'https://notify-api.line.me/api/notify' }}
           LINE_MESSAGE_TEMPLATE: ${{ secrets.LINE_MESSAGE_TEMPLATE || '{title}\n{message}' }}
-{message}' }}
           DATA_DIR: data
         run: rye run animator-credit-monitor check
 
