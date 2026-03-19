@@ -29,8 +29,10 @@ class HistoryManager:
         path = self._get_path(source)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
-        with open(path, "w", encoding="utf-8") as f:
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        tmp_path.replace(path)
         logger.info("Saved %d items to %s history", len(data), source)
 
     def detect_diff(self, source: str, new_data: list[dict]) -> list[dict]:

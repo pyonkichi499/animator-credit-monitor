@@ -1,6 +1,7 @@
 import smtplib
 from abc import ABC, abstractmethod
 from email.message import EmailMessage
+from typing import NamedTuple
 
 import requests
 
@@ -28,6 +29,18 @@ class Notifier(ABC):
         ...
 
 
+class NotificationFailure(NamedTuple):
+    notifier_name: str
+    error: Exception
+
+
+class MultiNotifierError(RuntimeError):
+    def __init__(self, failures: list[NotificationFailure]) -> None:
+        self.failures = failures
+        detail = "; ".join(f"{f.notifier_name}: {f.error}" for f in failures)
+        super().__init__(f"{len(failures)} notifier(s) failed: {detail}")
+
+
 class ConsoleNotifier(Notifier):
     def notify(self, title: str, message: str) -> None:
         print(f"[{title}] {message}")
@@ -38,8 +51,14 @@ class MultiNotifier(Notifier):
         self._notifiers = notifiers
 
     def notify(self, title: str, message: str) -> None:
+        failures: list[NotificationFailure] = []
         for notifier in self._notifiers:
-            notifier.notify(title, message)
+            try:
+                notifier.notify(title, message)
+            except Exception as e:
+                failures.append(NotificationFailure(type(notifier).__name__, e))
+        if failures:
+            raise MultiNotifierError(failures)
 
 
 class EmailNotifier(Notifier):
