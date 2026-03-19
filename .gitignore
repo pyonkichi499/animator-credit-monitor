@@ -27,3 +27,9 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/
+
+# Local-only GCP/GitHub setup env scripts
+scripts/gcp/*.local.sh
+
+# Local-only GitHub Actions vars/secrets env files
+scripts/github/*.local.sh

@@ -11,9 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Restore history cache
         id: history-cache-restore
@@ -32,28 +40,35 @@ jobs:
 
       - name: Run credit monitor
         env:
-          TARGET_BANGUMI_ID: ${{ secrets.TARGET_BANGUMI_ID }}
-          TARGET_NAME: ${{ secrets.TARGET_NAME }}
+          TARGET_BANGUMI_ID: ${{ vars.TARGET_BANGUMI_ID || secrets.TARGET_BANGUMI_ID }}
+          TARGET_NAME: ${{ secrets.TARGET_NAME || vars.TARGET_NAME }}
+          STATE_BACKEND: ${{ vars.STATE_BACKEND || 'firestore' }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          FIRESTORE_DATABASE: ${{ vars.FIRESTORE_DATABASE || '(default)' }}
+          FIRESTORE_COLLECTION_PREFIX: ${{ vars.FIRESTORE_COLLECTION_PREFIX }}
+          NOTIFY_RETRY_MAX_RETRIES: ${{ vars.NOTIFY_RETRY_MAX_RETRIES || '2' }}
+          NOTIFY_RETRY_INITIAL_DELAY_SECONDS: ${{ vars.NOTIFY_RETRY_INITIAL_DELAY_SECONDS || '60' }}
 
           # Notification backend: console | email | line
-          NOTIFIER: ${{ secrets.NOTIFIER }}
-          NOTIFIERS: ${{ secrets.NOTIFIERS }}
+          NOTIFIER: ${{ vars.NOTIFIER || secrets.NOTIFIER }}
+          NOTIFIERS: ${{ vars.NOTIFIERS || secrets.NOTIFIERS }}
 
           # Email notifier settings (when NOTIFIER=email)
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_HOST: ${{ vars.SMTP_HOST || secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT || secrets.SMTP_PORT }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          SMTP_USE_TLS: ${{ secrets.SMTP_USE_TLS }}
-          EMAIL_SUBJECT_TEMPLATE: ${{ secrets.EMAIL_SUBJECT_TEMPLATE }}
-          EMAIL_BODY_TEMPLATE: ${{ secrets.EMAIL_BODY_TEMPLATE }}
+          SMTP_USE_TLS: ${{ vars.SMTP_USE_TLS || secrets.SMTP_USE_TLS }}
+          EMAIL_SUBJECT_TEMPLATE: ${{ vars.EMAIL_SUBJECT_TEMPLATE || secrets.EMAIL_SUBJECT_TEMPLATE }}
+          EMAIL_BODY_TEMPLATE: ${{ vars.EMAIL_BODY_TEMPLATE || secrets.EMAIL_BODY_TEMPLATE }}
 
           # LINE notifier settings (when NOTIFIER=line)
           LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
-          LINE_NOTIFY_API_URL: ${{ secrets.LINE_NOTIFY_API_URL || 'https://notify-api.line.me/api/notify' }}
-          LINE_MESSAGE_TEMPLATE: ${{ secrets.LINE_MESSAGE_TEMPLATE || '{title}\n{message}' }}
+          LINE_NOTIFY_API_URL: ${{ vars.LINE_NOTIFY_API_URL || secrets.LINE_NOTIFY_API_URL || 'https://notify-api.line.me/api/notify' }}
+          LINE_MESSAGE_TEMPLATE: ${{ vars.LINE_MESSAGE_TEMPLATE || secrets.LINE_MESSAGE_TEMPLATE || '{title}\n{message}' }}
+          # DATA_DIR is only used when STATE_BACKEND=local
           DATA_DIR: data
         run: rye run animator-credit-monitor check
 
