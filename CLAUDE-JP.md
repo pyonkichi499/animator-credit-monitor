@@ -7,7 +7,7 @@
 - **言語:** Python 3.13（>= 3.11 必須）
 - **プロジェクト管理:** Rye
 - **CLI:** Click
-- **ライブラリ:** python-dotenv, requests, beautifulsoup4
+- **ライブラリ:** python-dotenv, requests, beautifulsoup4, google-cloud-firestore
 - **テスト:** pytest, responses（HTTPモック用）
 - **リンター:** ruff（E/F/W/I/UP/B/SIM ルール）
 - **型チェック:** mypy（disallow_untyped_defs）
@@ -15,14 +15,23 @@
 ## ディレクトリ構成
 ```
 src/animator_credit_monitor/   # メインソースコード
-├── main.py                    # Click CLI + オーケストレーション
+├── main.py                    # Click CLI + オーケストレーション (local/firestore 振り分け)
+├── config.py                  # AppConfig dataclass + 環境変数解析 + バリデーション
+├── models.py                  # SourcePlan, SourceRunResult, RunReport 値オブジェクト
+├── ports.py                   # HistoryRepository / NotificationGateway プロトコル
+├── usecase.py                 # MonitorUseCase (localバックエンド)
+├── firestore_usecase.py       # FirestoreOutboxMonitorUseCase (Firestoreバックエンド)
+├── delivery.py                # DeliveryDispatcher + RetryPolicy + DeliveryTarget
+├── firestore_store.py         # Firestore リポジトリ (snapshots/runs/outbox)
+├── formatters.py              # 差分 → 通知メッセージ フォーマッター
 ├── scraper.py                 # Bangumi + AniList + 作画@wiki スクレイパー
-├── notifier.py                # 通知ABC + Console実装
-└── history.py                 # 差分検知 + 状態保存
+├── notifier.py                # 通知ABC + Console/Email/Line 実装
+└── history.py                 # ローカルJSON差分検知 + 状態保存
 tests/                         # テストファイル（pytest）
 ├── fixtures/                  # スクレイパーテスト用HTMLフィクスチャ
 data/                          # 実行時状態（git除外）
-docs/                          # 運用ドキュメント
+docs/                          # 運用・設計ドキュメント
+templates/                     # 設定テンプレート
 devlog/                        # 開発ダイアリー
 ```
 
@@ -45,18 +54,34 @@ animator-credit-monitor check --dry-run      # 状態保存なしでチェック
 ```
 
 ## アーキテクチャ
-- **Notifier:** 抽象基底クラス（`Notifier`）に `ConsoleNotifier`（デフォルト）、`EmailNotifier`、`LineNotifier` を実装。
-- **Scraper:** 3つのスクレイパークラス:
-  - `BangumiScraper` — bangumi.tvの人物作品ページをスクレイプ。`<small>` タグから日本語タイトルを取得し、ない場合は中国語にフォールバック。`title_cn` フィールドを保持。
-  - `AniListScraper` — AniList GraphQL API使用（認証不要）。日本語タイトル、ローマ字、役割、日付を返却。
-  - `SakugaWikiScraper` — w.atwiki.jp/sakuga を検索（現在Cloudflare 403でブロック中）。
-- **nameベースソースの実動作:** 作画@wiki が403でブロック中のため、nameベースチェックは AniList を直接利用する。作画@wiki スクレイパーは将来復旧に備えて保持。
-- **History:** `HistoryManager` が `data/` 内のJSONベースの状態保存と差分検知を担当。履歴ファイルはソースID付き（例: `bangumi_50763_history.json`）で、アニメーター切替時にデータが混在しない。
-- **Main:** Click CLIがオーケストレーション: 設定読込 → スクレイプ → 差分検知 → 変更があれば通知。
+
+### クリーンアーキテクチャ層
+- **Ports (プロトコル):** `HistoryRepository`, `NotificationGateway` — 依存性注入インターフェース。
+- **Models:** `SourcePlan`, `SourceRunResult`, `RunReport` — frozen dataclass による不変値オブジェクト。
+- **Use Cases:** `MonitorUseCase` (local) と `FirestoreOutboxMonitorUseCase` (Firestore) — 純粋なビジネスロジック。
+- **Config:** `AppConfig` dataclass と `load_app_config_from_env()` — 全環境変数を事前バリデーション。
+- **Delivery:** `DeliveryDispatcher` と `RetryPolicy` — 指数バックオフリトライによるマルチターゲット配信。
+
+### デュアルバックエンド
+- **`STATE_BACKEND=local`** (デフォルト): `HistoryManager` を使用（`data/` 内のJSONファイル）。
+- **`STATE_BACKEND=firestore`**: Firestore コレクション（`snapshots`, `runs`, `events`, `deliveries`）を使用。Outbox パターンによる at-least-once 配信保証。
+
+### 既存コンポーネント
+- **Notifier:** 抽象基底クラス（`Notifier`）に `ConsoleNotifier`, `EmailNotifier`, `LineNotifier`, `MultiNotifier` を実装。
+- **Scraper:** `BangumiScraper`, `AniListScraper`, `SakugaWikiScraper`（403でブロック中）。
+- **History:** `HistoryManager` — `data/` 内のJSONベース状態保存。ソースID付きファイル名。
+- **Main:** Click CLI が設定に基づき local または Firestore バックエンドに振り分け。
 
 ## 環境変数（.env）
 - `TARGET_BANGUMI_ID` - 監視対象のBangumi人物ID
 - `TARGET_NAME` - nameベース監視用のアニメーター名（現状は実質AniList）
+- `STATE_BACKEND` - `local`（デフォルト）または `firestore`
+- `GCP_PROJECT_ID` - `STATE_BACKEND=firestore` 時に必須
+- `FIRESTORE_DATABASE` - Firestore データベース（デフォルト: `(default)`）
+- `FIRESTORE_COLLECTION_PREFIX` - Firestore コレクションのオプション接頭辞
+- `NOTIFIER` / `NOTIFIERS` - 通知チャンネル: `console`, `email`, `line`
+- `NOTIFY_RETRY_MAX_RETRIES` - 配信リトライ回数（デフォルト: 2）
+- `NOTIFY_RETRY_INITIAL_DELAY_SECONDS` - 初回リトライ遅延（デフォルト: 60）
 
 ## データ形式
 
@@ -76,10 +101,16 @@ animator-credit-monitor check --dry-run      # 状態保存なしでチェック
 - 現在のバイリンガルドキュメント:
   - `docs/AUTOMATION.md` ↔ `docs/AUTOMATION-JP.md`
   - `docs/MAINTENANCE.md` ↔ `docs/MAINTENANCE-JP.md`
+- 設計ドキュメント（Firestore統合）:
+  - `docs/FIRESTORE_RUNTIME_DESIGN.md` — 実行フロー、コレクション、リトライポリシー
+  - `docs/FIRESTORE_DESIGN_CHECKLIST.md` — 設計判断
+  - `docs/FIRESTORE_SNAPSHOTS_AND_UPDATE_POLICY.md` — スナップショット更新ルール
+  - `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md` — WIF認証セットアップ
+  - `docs/SETUP_CHECKLIST_JP.md` — ステップバイステップ構築手順
 
 ## テスト方針
 - TDDアプローチ: テストを先に書いてから実装
 - テスト名は日本語: `test_{分かりやすい日本語のシナリオ名}`
 - `responses` ライブラリでHTTPモック
 - `tests/fixtures/` にHTML解析テスト用フィクスチャ配置
-- CLI / scraper / history / notifier モジュールをテストでカバー
+- CLI / scraper / history / notifier / config / delivery / usecase / formatters モジュールをテストでカバー
