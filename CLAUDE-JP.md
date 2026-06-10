@@ -101,12 +101,12 @@ animator-credit-monitor check --dry-run      # 状態保存なしでチェック
 - 現在のバイリンガルドキュメント:
   - `docs/AUTOMATION.md` ↔ `docs/AUTOMATION-JP.md`
   - `docs/MAINTENANCE.md` ↔ `docs/MAINTENANCE-JP.md`
-- 設計ドキュメント（Firestore統合）:
-  - `docs/FIRESTORE_RUNTIME_DESIGN.md` — 実行フロー、コレクション、リトライポリシー
-  - `docs/FIRESTORE_DESIGN_CHECKLIST.md` — 設計判断
-  - `docs/FIRESTORE_SNAPSHOTS_AND_UPDATE_POLICY.md` — スナップショット更新ルール
-  - `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md` — WIF認証セットアップ
-  - `docs/SETUP_CHECKLIST_JP.md` — ステップバイステップ構築手順
+- 設計ドキュメント（Firestore統合、バイリンガル JP ↔ EN）:
+  - `docs/FIRESTORE_RUNTIME_DESIGN.md` ↔ `docs/FIRESTORE_RUNTIME_DESIGN_EN.md` — 実行フロー、コレクション、リトライポリシー
+  - `docs/FIRESTORE_DESIGN_CHECKLIST.md` ↔ `docs/FIRESTORE_DESIGN_CHECKLIST_EN.md` — 設計判断
+  - `docs/FIRESTORE_SNAPSHOTS_AND_UPDATE_POLICY.md` ↔ `docs/FIRESTORE_SNAPSHOTS_AND_UPDATE_POLICY_EN.md` — スナップショット更新ルール
+  - `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md` ↔ `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS_EN.md` — WIF認証セットアップ
+  - `docs/SETUP_CHECKLIST_JP.md` ↔ `docs/SETUP_CHECKLIST.md` — ステップバイステップ構築手順
 
 ## テスト方針
 - TDDアプローチ: テストを先に書いてから実装

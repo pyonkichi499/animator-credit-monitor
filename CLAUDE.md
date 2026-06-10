@@ -101,12 +101,12 @@ animator-credit-monitor check --dry-run      # Check without saving state
 - Current bilingual docs:
   - `docs/AUTOMATION.md` ↔ `docs/AUTOMATION-JP.md`
   - `docs/MAINTENANCE.md` ↔ `docs/MAINTENANCE-JP.md`
-- Design docs (Firestore integration):
-  - `docs/FIRESTORE_RUNTIME_DESIGN.md` — Execution flow, collections, retry policy
-  - `docs/FIRESTORE_DESIGN_CHECKLIST.md` — Design decisions
-  - `docs/FIRESTORE_SNAPSHOTS_AND_UPDATE_POLICY.md` — Snapshot update rules
-  - `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md` — WIF authentication setup
-  - `docs/SETUP_CHECKLIST_JP.md` — Step-by-step setup guide
+- Design docs (Firestore integration, bilingual JP ↔ EN):
+  - `docs/FIRESTORE_RUNTIME_DESIGN.md` ↔ `docs/FIRESTORE_RUNTIME_DESIGN_EN.md` — Execution flow, collections, retry policy
+  - `docs/FIRESTORE_DESIGN_CHECKLIST.md` ↔ `docs/FIRESTORE_DESIGN_CHECKLIST_EN.md` — Design decisions
+  - `docs/FIRESTORE_SNAPSHOTS_AND_UPDATE_POLICY.md` ↔ `docs/FIRESTORE_SNAPSHOTS_AND_UPDATE_POLICY_EN.md` — Snapshot update rules
+  - `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md` ↔ `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS_EN.md` — WIF authentication setup
+  - `docs/SETUP_CHECKLIST_JP.md` ↔ `docs/SETUP_CHECKLIST.md` — Step-by-step setup guide
 
 ## Testing
 - TDD approach: write tests first, then implement
