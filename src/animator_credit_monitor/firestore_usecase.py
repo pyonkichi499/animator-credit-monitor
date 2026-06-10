@@ -63,28 +63,35 @@ class FirestoreOutboxMonitorUseCase:
         run_id = self._runs.start_run(runtime=context.runtime, trigger_type=context.trigger_type, dry_run=dry_run)
         source_results: list[SourceRunResult] = []
         errors: list[str] = []
+        run_status = "failed"
+        redelivery_processed = 0
+        redelivery_failed = 0
 
-        redelivery_processed, redelivery_failed = self._process_redeliveries()
-        if redelivery_failed:
-            errors.append(f"redelivery_failed={redelivery_failed}")
+        try:
+            redelivery_processed, redelivery_failed = self._process_redeliveries()
+            if redelivery_failed:
+                errors.append(f"redelivery_failed={redelivery_failed}")
 
-        for plan in plans:
-            result = self._run_source(plan, run_id=run_id, dry_run=dry_run)
-            source_results.append(result)
-            if result.notification_error:
-                errors.append(f"{plan.short_name}: {result.notification_error}")
+            for plan in plans:
+                result = self._run_source(plan, run_id=run_id, dry_run=dry_run)
+                source_results.append(result)
+                if result.notification_error:
+                    errors.append(f"{plan.short_name}: {result.notification_error}")
 
-        run_status = "success"
-        if redelivery_failed or any(r.notification_error for r in source_results):
-            run_status = "partial_failure"
-
-        summary = {
-            "checksRun": len(source_results),
-            "sourcesWithNewCredits": sum(1 for r in source_results if r.diff_count > 0),
-            "redeliveryProcessed": redelivery_processed,
-            "redeliveryFailed": redelivery_failed,
-        }
-        self._runs.finish_run(run_id, status=run_status, summary=summary, errors=errors)
+            run_status = "success"
+            if redelivery_failed or any(r.notification_error for r in source_results):
+                run_status = "partial_failure"
+        except Exception as e:
+            errors.append(f"unexpected: {e}")
+            raise
+        finally:
+            summary = {
+                "checksRun": len(source_results),
+                "sourcesWithNewCredits": sum(1 for r in source_results if r.diff_count > 0),
+                "redeliveryProcessed": redelivery_processed,
+                "redeliveryFailed": redelivery_failed,
+            }
+            self._runs.finish_run(run_id, status=run_status, summary=summary, errors=errors)
 
         return RunReport(
             source_results=source_results,
@@ -168,9 +175,8 @@ class FirestoreOutboxMonitorUseCase:
 
     def _dispatch_delivery_ids(self, event_id: str, delivery_ids: list[str], payload: dict) -> str | None:
         errors: list[str] = []
-        retryable = {d["id"]: d for d in self._outbox.list_retryable_deliveries(_iso(_utcnow()), limit=500)}
         for delivery_id in delivery_ids:
-            delivery = retryable.get(delivery_id)
+            delivery = self._outbox.get_delivery(delivery_id)
             if not delivery:
                 continue
             err = self._dispatch_delivery(delivery, payload)

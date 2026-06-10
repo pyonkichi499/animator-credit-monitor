@@ -14,8 +14,8 @@ def _iso_now() -> str:
     return _utcnow().isoformat()
 
 
-def _ttl_after(days: int) -> str:
-    return (_utcnow() + timedelta(days=days)).isoformat()
+def _ttl_after(days: int) -> datetime:
+    return _utcnow() + timedelta(days=days)
 
 
 def _serialize_for_diff(item: dict | list[dict]) -> str:
@@ -205,6 +205,14 @@ class FirestoreOutboxRepository:
             data["id"] = doc.id
             results.append(data)
         return results
+
+    def get_delivery(self, delivery_id: str) -> dict[str, Any] | None:
+        doc = self._client.collection(self._deliveries_col).document(delivery_id).get()
+        if not doc.exists:
+            return None
+        data = doc.to_dict() or {}
+        data["id"] = doc.id
+        return data
 
     def mark_delivery_sent(self, delivery_id: str) -> str:
         now = _iso_now()
