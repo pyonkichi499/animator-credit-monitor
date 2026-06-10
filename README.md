@@ -137,22 +137,23 @@ A workflow is provided at `.github/workflows/daily-credit-check.yml`.
    - Create a GCP service account for Firestore access
    - Create Workload Identity Pool + Provider for GitHub OIDC
    - Allow your GitHub repo/branch to impersonate the service account
-   - Add these GitHub Secrets:
+   - Add these as **GitHub Variables** (non-secret):
      - `GCP_WORKLOAD_IDENTITY_PROVIDER`
      - `GCP_SERVICE_ACCOUNT`
      - `GCP_PROJECT_ID`
-3. Add required monitoring/notifier secrets (at minimum):
-   - `TARGET_NAME` (for AniList name-based monitoring)
+3. Add monitoring/notifier settings as **GitHub Variables** (non-secret):
+   - `TARGET_BANGUMI_ID` (optional, for Bangumi monitoring)
    - `NOTIFIER` (`email` or `line`)
    - or `NOTIFIERS` (`email,line`) to send to both
-   - Optional backend controls:
-     - `STATE_BACKEND` (`firestore` recommended for GitHub Actions)
-     - `FIRESTORE_DATABASE` (`(default)` if omitted)
-     - `FIRESTORE_COLLECTION_PREFIX` (optional)
-     - `NOTIFY_RETRY_MAX_RETRIES` (default `2`)
-     - `NOTIFY_RETRY_INITIAL_DELAY_SECONDS` (default `60`)
-4. Add notifier-specific secrets:
-   - Email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_TO`, `SMTP_USER`, `SMTP_PASS`, `SMTP_USE_TLS`
+   - `STATE_BACKEND` (`firestore` recommended for GitHub Actions)
+   - `FIRESTORE_DATABASE` (`(default)` if omitted)
+   - `FIRESTORE_COLLECTION_PREFIX` (optional)
+   - `NOTIFY_RETRY_MAX_RETRIES` (default `2`)
+   - `NOTIFY_RETRY_INITIAL_DELAY_SECONDS` (default `60`)
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_TLS` (if using email)
+4. Add credentials as **GitHub Secrets** (secret):
+   - `TARGET_NAME` (if you prefer to keep it private)
+   - Email: `SMTP_FROM`, `SMTP_TO`, `SMTP_USER`, `SMTP_PASS`
    - LINE: `LINE_NOTIFY_TOKEN` (optional: `LINE_NOTIFY_API_URL`)
 5. Run from **Actions → Daily Credit Check → Run workflow** for first validation.
 
