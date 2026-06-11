@@ -227,6 +227,67 @@ class TestProcessRedeliveries:
         assert report.run_status == "success"
 
 
+# ---- update_event_status の呼び出し回数 ----
+
+
+class TestUpdateEventStatusCalls:
+    def test_同一イベントの複数配信でもイベント状態更新は1回だけ(self) -> None:
+        snapshots, runs, outbox, dispatcher = _make_deps()
+        runs.start_run.return_value = "run-1"
+        outbox.list_retryable_deliveries.return_value = []
+        snapshots.detect_diff.return_value = [{"id": "2"}]
+        outbox.create_event_and_deliveries.return_value = ("ev-1", ["dl-1", "dl-2"])
+        outbox.get_delivery.side_effect = [
+            {"id": "dl-1", "channel": "console", "attemptCount": 0},
+            {"id": "dl-2", "channel": "email", "attemptCount": 0},
+        ]
+        dispatcher.targets = [
+            DeliveryTarget(channel="console", destination_key="stdout", notifier=MagicMock()),
+            DeliveryTarget(channel="email", destination_key="to@example.com", notifier=MagicMock()),
+        ]
+        uc = _make_usecase(snapshots, runs, outbox, dispatcher)
+
+        plan = _make_plan(items=[{"id": "1"}, {"id": "2"}])
+        uc.run([plan], dry_run=False, context=_context())
+
+        outbox.update_event_status.assert_called_once_with("ev-1")
+
+    def test_配信失敗時もイベント状態更新は1回だけ(self) -> None:
+        snapshots, runs, outbox, dispatcher = _make_deps()
+        runs.start_run.return_value = "run-1"
+        outbox.list_retryable_deliveries.return_value = []
+        snapshots.detect_diff.return_value = [{"id": "2"}]
+        outbox.create_event_and_deliveries.return_value = ("ev-1", ["dl-1"])
+        outbox.get_delivery.return_value = {"id": "dl-1", "channel": "email", "attemptCount": 0}
+        dispatcher.send.side_effect = RuntimeError("SMTP error")
+        dispatcher.targets = [DeliveryTarget(channel="email", destination_key="to@example.com", notifier=MagicMock())]
+        uc = _make_usecase(snapshots, runs, outbox, dispatcher)
+
+        plan = _make_plan(items=[{"id": "1"}, {"id": "2"}])
+        uc.run([plan], dry_run=False, context=_context())
+
+        outbox.update_event_status.assert_called_once_with("ev-1")
+
+    def test_redeliveryは同一イベントをまとめて1回だけ状態更新する(self) -> None:
+        snapshots, runs, outbox, dispatcher = _make_deps()
+        runs.start_run.return_value = "run-1"
+        retryable = [
+            {"id": "dl-1", "channel": "console", "eventId": "ev-1", "attemptCount": 1},
+            {"id": "dl-2", "channel": "email", "eventId": "ev-1", "attemptCount": 1},
+            {"id": "dl-3", "channel": "console", "eventId": "ev-2", "attemptCount": 1},
+        ]
+        outbox.list_retryable_deliveries.return_value = retryable
+        outbox.get_event_payload.return_value = {"payload": {"title": "t", "message": "m"}}
+        uc = _make_usecase(snapshots, runs, outbox, dispatcher)
+
+        report = uc.run([], dry_run=False, context=_context())
+
+        assert report.redelivery_processed == 3
+        assert outbox.update_event_status.call_count == 2
+        outbox.update_event_status.assert_any_call("ev-1")
+        outbox.update_event_status.assert_any_call("ev-2")
+
+
 # ---- _dispatch_delivery_ids (delivery が見つからない場合) ----
 
 

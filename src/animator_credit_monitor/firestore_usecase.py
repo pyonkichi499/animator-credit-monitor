@@ -186,12 +186,11 @@ class FirestoreOutboxMonitorUseCase:
         return "; ".join(errors) if errors else None
 
     def _dispatch_delivery(self, delivery: dict, payload: dict) -> str | None:
+        """delivery を1件配信して結果を記録する。イベント状態の更新は呼び出し側の責務。"""
         channel = str(delivery.get("channel", ""))
         try:
             self._dispatcher.send(channel, str(payload["title"]), str(payload["message"]))
-            event_id = self._outbox.mark_delivery_sent(str(delivery["id"]))
-            if event_id:
-                self._outbox.update_event_status(event_id)
+            self._outbox.mark_delivery_sent(str(delivery["id"]))
             return None
         except Exception as e:
             current_attempt_count = int(delivery.get("attemptCount", 0)) + 1
@@ -199,13 +198,11 @@ class FirestoreOutboxMonitorUseCase:
                 current_attempt_count=current_attempt_count,
                 retry_policy=self._retry_policy,
             )
-            event_id = self._outbox.mark_delivery_failed(
+            self._outbox.mark_delivery_failed(
                 str(delivery["id"]),
                 error_message=str(e),
                 next_retry_at_iso=next_retry,
             )
-            if event_id:
-                self._outbox.update_event_status(event_id)
             return f"{channel}: {e}"
 
     def _process_redeliveries(self) -> tuple[int, int]:
@@ -213,13 +210,17 @@ class FirestoreOutboxMonitorUseCase:
         deliveries = self._outbox.list_retryable_deliveries(now_iso, limit=100)
         processed = 0
         failed = 0
+        touched_event_ids: set[str] = set()
         for delivery in deliveries:
             event_id = str(delivery.get("eventId", ""))
             payload = self._outbox.get_event_payload(event_id).get("payload", {})
             if not payload:
                 continue
             processed += 1
+            touched_event_ids.add(event_id)
             if self._dispatch_delivery(delivery, payload) is not None:
                 failed += 1
+        for event_id in touched_event_ids:
+            self._outbox.update_event_status(event_id)
         return processed, failed
 
