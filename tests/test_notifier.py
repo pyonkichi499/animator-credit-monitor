@@ -2,7 +2,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from animator_credit_monitor.notifier import ConsoleNotifier, EmailNotifier, LineNotifier, MultiNotifier, Notifier
+from animator_credit_monitor.notifier import (
+    ConsoleNotifier,
+    EmailNotifier,
+    LineNotifier,
+    MultiNotifier,
+    MultiNotifierError,
+    Notifier,
+)
 
 
 class TestNotifier:
@@ -27,6 +34,19 @@ class TestNotifier:
 
         n1.notify.assert_called_once_with("title", "message")
         n2.notify.assert_called_once_with("title", "message")
+
+    def test_MultiNotifierは一部失敗しても他通知先を実行する(self) -> None:
+        n1 = MagicMock()
+        n2 = MagicMock()
+        n1.notify.side_effect = RuntimeError("smtp failed")
+        notifier = MultiNotifier([n1, n2])
+
+        with pytest.raises(MultiNotifierError) as exc_info:
+            notifier.notify("title", "message")
+
+        n1.notify.assert_called_once_with("title", "message")
+        n2.notify.assert_called_once_with("title", "message")
+        assert "smtp failed" in str(exc_info.value)
 
     @patch("animator_credit_monitor.notifier.smtplib.SMTP")
     def test_EmailNotifierがSMTPで通知送信する(self, mock_smtp_cls: MagicMock) -> None:

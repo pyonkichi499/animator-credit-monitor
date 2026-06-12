@@ -39,11 +39,23 @@ Edit `.env`:
 # Bangumi person ID (find it from the URL: bangumi.tv/person/{THIS_NUMBER})
 TARGET_BANGUMI_ID=12345
 
+# State backend: local | firestore
+STATE_BACKEND=local
+
 # Animator name for AniList search
 TARGET_NAME=アニメーター名
 
 # Notification backend: console | email | line
 NOTIFIER=console
+
+# Retry (in-run, exponential backoff)
+NOTIFY_RETRY_MAX_RETRIES=2
+NOTIFY_RETRY_INITIAL_DELAY_SECONDS=60
+
+# Firestore backend settings (required when STATE_BACKEND=firestore)
+GCP_PROJECT_ID=your-gcp-project-id
+FIRESTORE_DATABASE=(default)
+FIRESTORE_COLLECTION_PREFIX=
 
 # Email notifier settings (required when NOTIFIER=email)
 SMTP_HOST=smtp.example.com
@@ -121,14 +133,36 @@ rye run animator-credit-monitor check --help
 A workflow is provided at `.github/workflows/daily-credit-check.yml`.
 
 1. Open **Settings → Secrets and variables → Actions** in your GitHub repository.
-2. Add required secrets (at minimum):
-   - `TARGET_NAME` (for AniList name-based monitoring)
+2. Configure **GitHub OIDC / Workload Identity Federation** on GCP (recommended, no service account key JSON in GitHub).
+   - Create a GCP service account for Firestore access
+   - Create Workload Identity Pool + Provider for GitHub OIDC
+   - Allow your GitHub repo/branch to impersonate the service account
+   - Add these as **GitHub Variables** (non-secret):
+     - `GCP_WORKLOAD_IDENTITY_PROVIDER`
+     - `GCP_SERVICE_ACCOUNT`
+     - `GCP_PROJECT_ID`
+3. Add monitoring/notifier settings as **GitHub Variables** (non-secret):
+   - `TARGET_BANGUMI_ID` (optional, for Bangumi monitoring)
    - `NOTIFIER` (`email` or `line`)
    - or `NOTIFIERS` (`email,line`) to send to both
-3. Add notifier-specific secrets:
-   - Email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_TO`, `SMTP_USER`, `SMTP_PASS`, `SMTP_USE_TLS`
+   - `STATE_BACKEND` (`firestore` recommended for GitHub Actions)
+   - `FIRESTORE_DATABASE` (`(default)` if omitted)
+   - `FIRESTORE_COLLECTION_PREFIX` (optional)
+   - `NOTIFY_RETRY_MAX_RETRIES` (default `2`)
+   - `NOTIFY_RETRY_INITIAL_DELAY_SECONDS` (default `60`)
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_TLS` (if using email)
+4. Add credentials as **GitHub Secrets** (secret):
+   - `TARGET_NAME` (if you prefer to keep it private)
+   - Email: `SMTP_FROM`, `SMTP_TO`, `SMTP_USER`, `SMTP_PASS`
    - LINE: `LINE_NOTIFY_TOKEN` (optional: `LINE_NOTIFY_API_URL`)
-4. Run from **Actions → Daily Credit Check → Run workflow** for first validation.
+5. Run from **Actions → Daily Credit Check → Run workflow** for first validation.
+
+### Firestore Collections (when `STATE_BACKEND=firestore`)
+
+- `snapshots`: diff comparison baseline (no TTL)
+- `runs`: execution summaries (`30d` TTL recommended)
+- `events`: detected credit events / outbox (`30d` TTL recommended)
+- `deliveries`: notifier delivery states for retry/redelivery (`30d` TTL recommended)
 
 ### Secrets templates (GitHub Actions)
 
@@ -168,6 +202,29 @@ EMAIL_BODY_TEMPLATE={title}\n\n{message}
 
 > `SMTP_USER=apikey` + `SMTP_PASS=<SendGrid API key>` がSendGridのSMTP認証セットです。
 > 同じ内容は `templates/sendgrid_github_secrets.template.txt` にもあります。
+
+#### Email notifier (Gmail SMTP preset)
+
+```text
+STATE_BACKEND=firestore
+GCP_PROJECT_ID=your-gcp-project-id
+TARGET_NAME=監視対象名
+TARGET_BANGUMI_ID=12345
+
+NOTIFIER=email
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USE_TLS=true
+SMTP_FROM=your-gmail-address@gmail.com
+SMTP_TO=destination@example.com
+SMTP_USER=your-gmail-address@gmail.com
+SMTP_PASS=your-16-char-app-password
+EMAIL_SUBJECT_TEMPLATE=[ACM] {title}
+EMAIL_BODY_TEMPLATE={title}\n\n{message}
+```
+
+> Gmail SMTP は通常のGoogleアカウントパスワードではなく、App Password を使ってください。
+> WIF を使う GCP セットアップ手順は `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md` を参照。
 
 #### LINE notifier (`NOTIFIER=line`)
 

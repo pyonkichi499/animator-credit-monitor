@@ -82,6 +82,36 @@ class TestCLI:
         assert result.exit_code == 0
         mock_history.save.assert_not_called()
 
+    @patch("animator_credit_monitor.main.ConsoleNotifier")
+    @patch("animator_credit_monitor.main.AniListScraper")
+    @patch("animator_credit_monitor.main.BangumiScraper")
+    @patch("animator_credit_monitor.main.HistoryManager")
+    def test_通知失敗時は履歴を保存せずエラー終了する(
+        self,
+        mock_history_cls: MagicMock,
+        mock_bangumi_cls: MagicMock,
+        mock_anilist_cls: MagicMock,
+        mock_console_notifier_cls: MagicMock,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        mock_history = mock_history_cls.return_value
+        mock_history.detect_diff.return_value = [{"id": "1", "title": "新作品", "role": "原画", "info": "2026-01"}]
+        mock_bangumi_cls.return_value.fetch_works.return_value = [{"id": "1", "title": "新作品"}]
+        mock_anilist_cls.return_value.fetch_works.return_value = []
+        mock_console_notifier_cls.return_value.notify.side_effect = RuntimeError("notify failed")
+
+        env = {
+            "TARGET_BANGUMI_ID": "12345",
+            "DATA_DIR": str(tmp_path),
+        }
+        with patch.dict("os.environ", env, clear=True):
+            result = runner.invoke(cli, ["check", "--bangumi-only"])
+
+        assert result.exit_code != 0
+        mock_history.save.assert_not_called()
+        assert "Notification failed (Bangumi)" in result.output
+
     @patch("animator_credit_monitor.main.AniListScraper")
     @patch("animator_credit_monitor.main.BangumiScraper")
     @patch("animator_credit_monitor.main.HistoryManager")
@@ -333,3 +363,20 @@ class TestCLI:
 
         assert result.exit_code != 0
         assert "Notifier type must be one of" in result.output
+
+    def test_NOTIFIERS重複値はエラー終了する(
+        self,
+        runner: CliRunner,
+    ) -> None:
+        env = {
+            "TARGET_NAME": "テスト",
+            "NOTIFIERS": "email,email",
+            "SMTP_HOST": "smtp.example.com",
+            "SMTP_FROM": "from@example.com",
+            "SMTP_TO": "to@example.com",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            result = runner.invoke(cli, ["check", "--anilist-only"])
+
+        assert result.exit_code != 0
+        assert "Duplicate notifier types are not allowed" in result.output

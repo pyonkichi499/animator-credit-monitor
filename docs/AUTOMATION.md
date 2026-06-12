@@ -80,29 +80,32 @@ This repository includes `.github/workflows/daily-credit-check.yml`.
 ### Setup
 
 1. Go to **Settings → Secrets and variables → Actions**.
-2. Register secrets used by the workflow:
-   - Required for monitoring target:
-     - `TARGET_NAME` (AniList name-based check)
-     - `TARGET_BANGUMI_ID` (optional if you also monitor Bangumi)
-   - Required notifier selector:
-     - `NOTIFIER` (`console`, `email`, or `line`)
-     - `NOTIFIERS` (optional multi-destination, e.g. `email,line`)
+2. Register **Variables** (non-secret, visible in logs):
+   - `TARGET_BANGUMI_ID` (optional, for Bangumi monitoring)
+   - `NOTIFIER` (`console`, `email`, or `line`)
+   - `NOTIFIERS` (optional multi-destination, e.g. `email,line`)
+   - `STATE_BACKEND` (`firestore` recommended for GitHub Actions)
+   - `FIRESTORE_DATABASE`, `FIRESTORE_COLLECTION_PREFIX` (optional)
+   - `NOTIFY_RETRY_MAX_RETRIES`, `NOTIFY_RETRY_INITIAL_DELAY_SECONDS` (optional)
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_TLS` (if using email)
+   - `EMAIL_SUBJECT_TEMPLATE`, `EMAIL_BODY_TEMPLATE` (optional, `{title}` / `{message}` placeholders)
+   - `LINE_NOTIFY_API_URL`, `LINE_MESSAGE_TEMPLATE` (optional)
+   - GCP/WIF (see `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md`):
+     - `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`
+3. Register **Secrets** (credentials, masked in logs):
+   - `TARGET_NAME` (AniList name-based check, if you prefer to keep it private)
    - If `NOTIFIER=email`:
-     - `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_TO`
-     - `SMTP_USER`, `SMTP_PASS` (if authentication is required)
-     - `SMTP_USE_TLS` (e.g., `true`)
-     - `EMAIL_SUBJECT_TEMPLATE`, `EMAIL_BODY_TEMPLATE` (optional, `{title}` / `{message}` placeholders)
+     - `SMTP_FROM`, `SMTP_TO`, `SMTP_USER`, `SMTP_PASS`
    - If `NOTIFIER=line`:
      - `LINE_NOTIFY_TOKEN`
-     - `LINE_NOTIFY_API_URL` (optional; defaults to LINE Notify compatible endpoint)
-     - `LINE_MESSAGE_TEMPLATE` (optional, `{title}` / `{message}` placeholders)
 
-3. Trigger once manually from **Actions → Daily Credit Check → Run workflow**.
+4. Trigger once manually from **Actions → Daily Credit Check → Run workflow**.
 
 ### Authentication Notes
 
-- Keep all credentials in **GitHub Secrets** (never commit into repo files).
-- The workflow passes credentials as runtime environment variables only.
+- Keep credentials (passwords, tokens, personal addresses) in **GitHub Secrets** (never commit into repo files).
+- Non-secret configuration (host names, ports, feature flags) should use **GitHub Variables**.
+- The workflow passes both as runtime environment variables only.
 - If credentials are invalid, the CLI exits with a clear configuration/notification error.
 
 

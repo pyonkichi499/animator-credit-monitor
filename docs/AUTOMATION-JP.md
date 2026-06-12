@@ -80,29 +80,32 @@ systemctl --user enable --now animator-monitor.timer
 ### セットアップ
 
 1. GitHub リポジトリの **Settings → Secrets and variables → Actions** を開く。
-2. ワークフローで使う Secrets を登録する:
-   - 監視対象として必要:
-     - `TARGET_NAME`（AniList の name ベース監視）
-     - `TARGET_BANGUMI_ID`（Bangumi も監視する場合は設定）
-   - 通知先選択:
-     - `NOTIFIER`（`console` / `email` / `line`）
-     - `NOTIFIERS`（任意。複数通知先。例: `email,line`）
+2. **Variables**（非秘匿、ログに表示可）を登録する:
+   - `TARGET_BANGUMI_ID`（Bangumi も監視する場合は設定）
+   - `NOTIFIER`（`console` / `email` / `line`）
+   - `NOTIFIERS`（任意。複数通知先。例: `email,line`）
+   - `STATE_BACKEND`（GitHub Actions では `firestore` 推奨）
+   - `FIRESTORE_DATABASE`, `FIRESTORE_COLLECTION_PREFIX`（任意）
+   - `NOTIFY_RETRY_MAX_RETRIES`, `NOTIFY_RETRY_INITIAL_DELAY_SECONDS`（任意）
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_TLS`（email 通知を使う場合）
+   - `EMAIL_SUBJECT_TEMPLATE`, `EMAIL_BODY_TEMPLATE`（任意。`{title}` / `{message}` プレースホルダ対応）
+   - `LINE_NOTIFY_API_URL`, `LINE_MESSAGE_TEMPLATE`（任意）
+   - GCP/WIF（詳細は `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md` 参照）:
+     - `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`
+3. **Secrets**（認証情報、ログではマスク）を登録する:
+   - `TARGET_NAME`（AniList の name ベース監視、非公開にしたい場合）
    - `NOTIFIER=email` の場合:
-     - `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_TO`
-     - `SMTP_USER`, `SMTP_PASS`（認証が必要な場合）
-     - `SMTP_USE_TLS`（例: `true`）
-     - `EMAIL_SUBJECT_TEMPLATE`, `EMAIL_BODY_TEMPLATE`（任意。`{title}` / `{message}` プレースホルダ対応）
+     - `SMTP_FROM`, `SMTP_TO`, `SMTP_USER`, `SMTP_PASS`
    - `NOTIFIER=line` の場合:
      - `LINE_NOTIFY_TOKEN`
-     - `LINE_NOTIFY_API_URL`（任意。未設定時は互換エンドポイントを使用）
-     - `LINE_MESSAGE_TEMPLATE`（任意。`{title}` / `{message}` プレースホルダ対応）
 
-3. **Actions → Daily Credit Check → Run workflow** で手動実行し、初回動作確認を行う。
+4. **Actions → Daily Credit Check → Run workflow** で手動実行し、初回動作確認を行う。
 
 ### 認証情報の扱い
 
-- 認証情報は必ず **GitHub Secrets** に保存する（リポジトリへコミットしない）。
-- ワークフローでは実行時の環境変数としてのみ注入される。
+- パスワード・トークン・個人メールアドレスは **GitHub Secrets** に保存する（リポジトリへコミットしない）。
+- 非秘匿の設定値（ホスト名、ポート、機能フラグ等）は **GitHub Variables** を使用する。
+- ワークフローでは両方とも実行時の環境変数としてのみ注入される。
 - 認証情報が不正な場合はCLIが設定/通知エラーを明示して終了する。
 
 
