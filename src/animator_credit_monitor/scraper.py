@@ -1,7 +1,6 @@
 import logging
 import re
 import time
-from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -9,7 +8,6 @@ from bs4 import BeautifulSoup, Tag
 logger = logging.getLogger(__name__)
 
 BASE_URL_BANGUMI = "https://bangumi.tv"
-BASE_URL_SAKUGAWIKI = "https://w.atwiki.jp"
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -127,53 +125,6 @@ class BangumiScraper:
 
         next_page = current_page + 1
         return f"{BASE_URL_BANGUMI}/person/{person_id}/works?sort=date&page={next_page}"
-
-
-class SakugaWikiScraper:
-    def __init__(self) -> None:
-        self._session = requests.Session()
-        self._session.headers.update(DEFAULT_HEADERS)
-
-    def search(self, name: str) -> list[dict]:
-        """Search for an animator on Sakuga@wiki."""
-        url = f"{BASE_URL_SAKUGAWIKI}/sakuga/search"
-        params = {"keyword": name}
-
-        try:
-            logger.info("Searching Sakuga@wiki for: %s", name)
-            resp = self._session.get(url, params=params, timeout=30)
-            resp.raise_for_status()
-            resp.encoding = resp.apparent_encoding
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-            return self._parse_search_results(soup)
-
-        except (requests.RequestException, ConnectionError) as e:
-            logger.error("Failed to search Sakuga@wiki: %s", e)
-            return []
-
-    def _parse_search_results(self, soup: BeautifulSoup) -> list[dict]:
-        """Parse search results from Sakuga@wiki."""
-        results: list[dict] = []
-        search_list = soup.find("ul", class_="search-list")
-        if not search_list:
-            return results
-
-        for li in search_list.find_all("li"):
-            link = li.find("a")
-            if not link:
-                continue
-
-            href = str(link.get("href", ""))
-            full_url = urljoin(f"{BASE_URL_SAKUGAWIKI}/", href)
-            title = link.get_text(strip=True)
-
-            results.append({
-                "title": title,
-                "url": full_url,
-            })
-
-        return results
 
 
 ANILIST_ROLE_MAP: dict[str, str] = {

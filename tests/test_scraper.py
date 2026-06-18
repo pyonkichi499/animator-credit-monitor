@@ -2,7 +2,7 @@ from pathlib import Path
 
 import responses
 
-from animator_credit_monitor.scraper import AniListScraper, BangumiScraper, SakugaWikiScraper
+from animator_credit_monitor.scraper import AniListScraper, BangumiScraper
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -101,51 +101,6 @@ class TestBangumiScraper:
         works = scraper.fetch_works("12345")
 
         assert works == []
-
-
-class TestSakugaWikiScraper:
-    @responses.activate
-    def test_作画wiki検索結果をパースできる(self) -> None:
-        html = (FIXTURES_DIR / "sakugawiki_search.html").read_text()
-        responses.add(
-            responses.GET,
-            "https://w.atwiki.jp/sakuga/search",
-            body=html,
-            status=200,
-        )
-
-        scraper = SakugaWikiScraper()
-        results = scraper.search("テストアニメーター")
-
-        assert len(results) == 3
-        assert results[0]["title"] == "テスト作品A（TV）"
-        assert results[0]["url"] == "https://w.atwiki.jp/sakuga/pages/101.html"
-
-    @responses.activate
-    def test_作画wikiで403エラー時に空リストを返す(self) -> None:
-        responses.add(
-            responses.GET,
-            "https://w.atwiki.jp/sakuga/search",
-            status=403,
-        )
-
-        scraper = SakugaWikiScraper()
-        results = scraper.search("テスト")
-
-        assert results == []
-
-    @responses.activate
-    def test_作画wikiで接続エラー時に空リストを返す(self) -> None:
-        responses.add(
-            responses.GET,
-            "https://w.atwiki.jp/sakuga/search",
-            body=ConnectionError("Connection refused"),
-        )
-
-        scraper = SakugaWikiScraper()
-        results = scraper.search("テスト")
-
-        assert results == []
 
 
 class TestAniListScraper:
