@@ -213,77 +213,7 @@ class TestCLI:
         assert result.exit_code == 0
         mock_email_notifier_cls.assert_called_once()
 
-    @patch("animator_credit_monitor.main.LineNotifier")
-    @patch("animator_credit_monitor.main.AniListScraper")
-    @patch("animator_credit_monitor.main.BangumiScraper")
-    @patch("animator_credit_monitor.main.HistoryManager")
-    def test_NOTIFIER_line設定でLineNotifierが使われる(
-        self,
-        mock_history_cls: MagicMock,
-        mock_bangumi_cls: MagicMock,
-        mock_anilist_cls: MagicMock,
-        mock_line_notifier_cls: MagicMock,
-        runner: CliRunner,
-        tmp_path: Path,
-    ) -> None:
-        mock_history_cls.return_value.detect_diff.return_value = []
-        mock_bangumi_cls.return_value.fetch_works.return_value = []
-        mock_anilist_cls.return_value.fetch_works.return_value = []
-
-        env = {
-            "TARGET_BANGUMI_ID": "12345",
-            "TARGET_NAME": "テスト",
-            "DATA_DIR": str(tmp_path),
-            "NOTIFIER": "line",
-            "LINE_NOTIFY_TOKEN": "token",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            result = runner.invoke(cli, ["check"])
-
-        assert result.exit_code == 0
-        mock_line_notifier_cls.assert_called_once_with(
-            token="token",
-            api_url="https://notify-api.line.me/api/notify",
-            message_template="{title}\n{message}",
-        )
-
-    @patch("animator_credit_monitor.main.LineNotifier")
-    @patch("animator_credit_monitor.main.AniListScraper")
-    @patch("animator_credit_monitor.main.BangumiScraper")
-    @patch("animator_credit_monitor.main.HistoryManager")
-    def test_NOTIFIER_line設定でAPI_URLが空文字でもデフォルトURLを使う(
-        self,
-        mock_history_cls: MagicMock,
-        mock_bangumi_cls: MagicMock,
-        mock_anilist_cls: MagicMock,
-        mock_line_notifier_cls: MagicMock,
-        runner: CliRunner,
-        tmp_path: Path,
-    ) -> None:
-        mock_history_cls.return_value.detect_diff.return_value = []
-        mock_bangumi_cls.return_value.fetch_works.return_value = []
-        mock_anilist_cls.return_value.fetch_works.return_value = []
-
-        env = {
-            "TARGET_BANGUMI_ID": "12345",
-            "TARGET_NAME": "テスト",
-            "DATA_DIR": str(tmp_path),
-            "NOTIFIER": "line",
-            "LINE_NOTIFY_TOKEN": "token",
-            "LINE_NOTIFY_API_URL": "",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            result = runner.invoke(cli, ["check"])
-
-        assert result.exit_code == 0
-        mock_line_notifier_cls.assert_called_once_with(
-            token="token",
-            api_url="https://notify-api.line.me/api/notify",
-            message_template="{title}\n{message}",
-        )
-
     @patch("animator_credit_monitor.main.MultiNotifier")
-    @patch("animator_credit_monitor.main.LineNotifier")
     @patch("animator_credit_monitor.main.EmailNotifier")
     @patch("animator_credit_monitor.main.AniListScraper")
     @patch("animator_credit_monitor.main.BangumiScraper")
@@ -294,7 +224,6 @@ class TestCLI:
         mock_bangumi_cls: MagicMock,
         mock_anilist_cls: MagicMock,
         mock_email_notifier_cls: MagicMock,
-        mock_line_notifier_cls: MagicMock,
         mock_multi_notifier_cls: MagicMock,
         runner: CliRunner,
         tmp_path: Path,
@@ -306,19 +235,17 @@ class TestCLI:
         env = {
             "TARGET_NAME": "テスト",
             "DATA_DIR": str(tmp_path),
-            "NOTIFIERS": "email,line",
+            "NOTIFIERS": "email,console",
             "SMTP_HOST": "smtp.example.com",
             "SMTP_PORT": "587",
             "SMTP_FROM": "from@example.com",
             "SMTP_TO": "to@example.com",
-            "LINE_NOTIFY_TOKEN": "token",
         }
         with patch.dict("os.environ", env, clear=True):
             result = runner.invoke(cli, ["check", "--anilist-only"])
 
         assert result.exit_code == 0
         mock_email_notifier_cls.assert_called_once()
-        mock_line_notifier_cls.assert_called_once()
         mock_multi_notifier_cls.assert_called_once()
 
     def test_NOTIFIER_email設定で必須環境変数不足時はエラー終了する(
@@ -335,20 +262,6 @@ class TestCLI:
 
         assert result.exit_code != 0
         assert "SMTP_HOST, SMTP_FROM, SMTP_TO" in result.output
-
-    def test_NOTIFIER_line設定でトークン不足時はエラー終了する(
-        self,
-        runner: CliRunner,
-    ) -> None:
-        env = {
-            "TARGET_NAME": "テスト",
-            "NOTIFIER": "line",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            result = runner.invoke(cli, ["check", "--anilist-only"])
-
-        assert result.exit_code != 0
-        assert "LINE_NOTIFY_TOKEN" in result.output
 
     def test_NOTIFIER未知値でエラー終了する(
         self,

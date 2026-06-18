@@ -19,7 +19,7 @@ from animator_credit_monitor.firestore_usecase import FirestoreOutboxMonitorUseC
 from animator_credit_monitor.formatters import format_anilist_diff, format_bangumi_diff
 from animator_credit_monitor.history import HistoryManager
 from animator_credit_monitor.models import RunReport, SourcePlan
-from animator_credit_monitor.notifier import ConsoleNotifier, EmailNotifier, LineNotifier, MultiNotifier, Notifier
+from animator_credit_monitor.notifier import ConsoleNotifier, EmailNotifier, MultiNotifier, Notifier
 from animator_credit_monitor.scraper import AniListScraper, BangumiScraper
 from animator_credit_monitor.usecase import MonitorUseCase
 
@@ -73,20 +73,8 @@ def _build_delivery_targets(config: AppConfig) -> list[DeliveryTarget]:
                     ),
                 )
             )
-        elif notifier_type == "line":
-            targets.append(
-                DeliveryTarget(
-                    channel="line",
-                    destination_key="default",
-                    notifier=LineNotifier(
-                        token=config.line.token,
-                        api_url=config.line.api_url,
-                        message_template=config.line.message_template,
-                    ),
-                )
-            )
         else:
-            raise ValueError("Notifier type must be one of: console, email, line")
+            raise ValueError("Notifier type must be one of: console, email")
     return targets
 
 

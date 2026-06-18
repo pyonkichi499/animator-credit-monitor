@@ -3,8 +3,6 @@ from abc import ABC, abstractmethod
 from email.message import EmailMessage
 from typing import NamedTuple
 
-import requests
-
 
 def _decode_template_escapes(template: str) -> str:
     return (
@@ -97,21 +95,3 @@ class EmailNotifier(Notifier):
             if self._username and self._password:
                 smtp.login(self._username, self._password)
             smtp.send_message(msg)
-
-
-class LineNotifier(Notifier):
-    def __init__(
-        self,
-        token: str,
-        api_url: str = "https://notify-api.line.me/api/notify",
-        message_template: str = "{title}\n{message}",
-    ) -> None:
-        self._token = token
-        self._api_url = api_url
-        self._message_template = message_template
-
-    def notify(self, title: str, message: str) -> None:
-        payload = {"message": _render_template(self._message_template, title, message)}
-        headers = {"Authorization": f"Bearer {self._token}"}
-        resp = requests.post(self._api_url, data=payload, headers=headers, timeout=30)
-        resp.raise_for_status()

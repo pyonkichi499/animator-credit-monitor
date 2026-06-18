@@ -5,7 +5,6 @@ import pytest
 from animator_credit_monitor.notifier import (
     ConsoleNotifier,
     EmailNotifier,
-    LineNotifier,
     MultiNotifier,
     MultiNotifierError,
     Notifier,
@@ -137,49 +136,3 @@ class TestNotifier:
         mock_smtp.starttls.assert_not_called()
         mock_smtp.login.assert_not_called()
         mock_smtp.send_message.assert_called_once()
-
-    @patch("animator_credit_monitor.notifier.requests.post")
-    def test_LineNotifierがAPIへ通知送信する(self, mock_post: MagicMock) -> None:
-        mock_resp = MagicMock()
-        mock_post.return_value = mock_resp
-
-        notifier = LineNotifier(token="token123")
-        notifier.notify("タイトル", "メッセージ")
-
-        mock_post.assert_called_once()
-        kwargs = mock_post.call_args.kwargs
-        assert kwargs["headers"]["Authorization"] == "Bearer token123"
-        assert "タイトル" in kwargs["data"]["message"]
-        assert "メッセージ" in kwargs["data"]["message"]
-        mock_resp.raise_for_status.assert_called_once()
-
-    @patch("animator_credit_monitor.notifier.requests.post")
-    def test_LineNotifierテンプレートが適用される(self, mock_post: MagicMock) -> None:
-        mock_resp = MagicMock()
-        mock_post.return_value = mock_resp
-
-        notifier = LineNotifier(token="token123", message_template="[通知]{title} => {message}")
-        notifier.notify("タイトル", "メッセージ")
-
-        kwargs = mock_post.call_args.kwargs
-        assert kwargs["data"]["message"] == "[通知]タイトル => メッセージ"
-
-    @patch("animator_credit_monitor.notifier.requests.post")
-    def test_LineNotifierでバックスラッシュnを改行として解釈する(self, mock_post: MagicMock) -> None:
-        mock_resp = MagicMock()
-        mock_post.return_value = mock_resp
-
-        notifier = LineNotifier(token="token123", message_template="{title}\\n{message}")
-        notifier.notify("タイトル", "メッセージ")
-
-        kwargs = mock_post.call_args.kwargs
-        assert kwargs["data"]["message"] == "タイトル\nメッセージ"
-
-    @patch("animator_credit_monitor.notifier.requests.post")
-    def test_LineNotifierで未知のテンプレート変数はエラー(self, mock_post: MagicMock) -> None:
-        mock_resp = MagicMock()
-        mock_post.return_value = mock_resp
-
-        notifier = LineNotifier(token="token123", message_template="{unknown}")
-        with pytest.raises(ValueError):
-            notifier.notify("タイトル", "メッセージ")

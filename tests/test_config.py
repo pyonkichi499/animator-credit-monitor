@@ -47,7 +47,6 @@ def test_空のenvではデフォルト値で読み込める() -> None:
     assert config.notify_retry_initial_delay_seconds == 60
     assert config.email.port == 587
     assert config.email.use_tls is True
-    assert config.line.api_url == "https://notify-api.line.me/api/notify"
 
 
 def test_STATE_BACKENDが不正な値の場合はエラーになる() -> None:
@@ -73,7 +72,7 @@ def test_未知のnotifier種別はエラーになる() -> None:
     with pytest.raises(ConfigValidationError) as exc_info:
         load_app_config_from_env(env)
 
-    assert "Notifier type must be one of: console, email, line" in exc_info.value.errors
+    assert "Notifier type must be one of: console, email" in exc_info.value.errors
 
 
 def test_NOTIFIERSが空文字だけの場合はエラーになる() -> None:
@@ -96,16 +95,15 @@ def test_notifierの重複指定はエラーになる() -> None:
 
 def test_NOTIFIERSはカンマ区切りで複数指定でき空白も除去される() -> None:
     env = {
-        "NOTIFIERS": " Email , LINE ",
+        "NOTIFIERS": " Email , Console ",
         "SMTP_HOST": "smtp.example.com",
         "SMTP_FROM": "from@example.com",
         "SMTP_TO": "to@example.com",
-        "LINE_NOTIFY_TOKEN": "token",
     }
 
     config = load_app_config_from_env(env)
 
-    assert config.notifier_types == ["email", "line"]
+    assert config.notifier_types == ["email", "console"]
 
 
 def test_SMTP_PORTが整数でない場合はエラーになる() -> None:
@@ -124,15 +122,6 @@ def test_email_notifier指定時はSMTP必須項目が検証される() -> None:
         load_app_config_from_env(env)
 
     assert "SMTP_HOST, SMTP_FROM, SMTP_TO are required when using email notifier" in exc_info.value.errors
-
-
-def test_line_notifier指定時はトークンが必須() -> None:
-    env = {"NOTIFIER": "line"}
-
-    with pytest.raises(ConfigValidationError) as exc_info:
-        load_app_config_from_env(env)
-
-    assert "LINE_NOTIFY_TOKEN is required when using line notifier" in exc_info.value.errors
 
 
 def test_NOTIFY_RETRY_MAX_RETRIESが負数の場合はエラーになる() -> None:
@@ -201,21 +190,6 @@ def test_email設定の各項目が読み込まれる() -> None:
     assert config.email.use_tls is False
     assert config.email.subject_template == "[通知] {title}"
     assert config.email.body_template == "本文: {message}"
-
-
-def test_line設定の各項目が読み込まれる() -> None:
-    env = {
-        "NOTIFIER": "line",
-        "LINE_NOTIFY_TOKEN": "token",
-        "LINE_NOTIFY_API_URL": "https://example.com/notify",
-        "LINE_MESSAGE_TEMPLATE": "{title}: {message}",
-    }
-
-    config = load_app_config_from_env(env)
-
-    assert config.line.token == "token"
-    assert config.line.api_url == "https://example.com/notify"
-    assert config.line.message_template == "{title}: {message}"
 
 
 def test_ターゲット設定とDATA_DIRが読み込まれる() -> None:

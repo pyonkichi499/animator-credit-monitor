@@ -16,13 +16,6 @@ class EmailConfig:
 
 
 @dataclass(frozen=True)
-class LineConfig:
-    token: str
-    api_url: str
-    message_template: str
-
-
-@dataclass(frozen=True)
 class AppConfig:
     state_backend: str
     bangumi_id: str
@@ -35,7 +28,6 @@ class AppConfig:
     notify_retry_max_retries: int
     notify_retry_initial_delay_seconds: int
     email: EmailConfig
-    line: LineConfig
 
 
 class ConfigValidationError(ValueError):
@@ -70,10 +62,10 @@ def load_app_config_from_env(env: dict[str, str]) -> AppConfig:
     if not notifier_types:
         errors.append("NOTIFIERS is empty")
 
-    allowed_notifiers = {"console", "email", "line"}
+    allowed_notifiers = {"console", "email"}
     unknown = [n for n in notifier_types if n not in allowed_notifiers]
     if unknown:
-        errors.append("Notifier type must be one of: console, email, line")
+        errors.append("Notifier type must be one of: console, email")
 
     duplicates = sorted({n for n in notifier_types if notifier_types.count(n) > 1})
     if duplicates:
@@ -97,17 +89,8 @@ def load_app_config_from_env(env: dict[str, str]) -> AppConfig:
         subject_template=env.get("EMAIL_SUBJECT_TEMPLATE", "{title}"),
         body_template=env.get("EMAIL_BODY_TEMPLATE", "{message}"),
     )
-    line = LineConfig(
-        token=env.get("LINE_NOTIFY_TOKEN", "").strip(),
-        api_url=env.get("LINE_NOTIFY_API_URL", "").strip() or "https://notify-api.line.me/api/notify",
-        message_template=env.get("LINE_MESSAGE_TEMPLATE", "{title}\n{message}"),
-    )
-
     if "email" in notifier_types and (not email.host or not email.from_addr or not email.to_addr):
         errors.append("SMTP_HOST, SMTP_FROM, SMTP_TO are required when using email notifier")
-
-    if "line" in notifier_types and not line.token:
-        errors.append("LINE_NOTIFY_TOKEN is required when using line notifier")
 
     notify_retry_max_retries_raw = env.get("NOTIFY_RETRY_MAX_RETRIES", "2").strip()
     notify_retry_initial_delay_raw = env.get("NOTIFY_RETRY_INITIAL_DELAY_SECONDS", "60").strip()
@@ -148,5 +131,4 @@ def load_app_config_from_env(env: dict[str, str]) -> AppConfig:
         notify_retry_max_retries=notify_retry_max_retries,
         notify_retry_initial_delay_seconds=notify_retry_initial_delay_seconds,
         email=email,
-        line=line,
     )
