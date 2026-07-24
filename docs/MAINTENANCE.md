@@ -92,7 +92,7 @@ To test that notifications work:
 
 ```bash
 rm data/bangumi_*_history.json
-rye run animator-credit-monitor check --bangumi-only
+uv run animator-credit-monitor check --bangumi-only
 ```
 
 ## Encoding
@@ -129,10 +129,10 @@ class DiscordNotifier(Notifier):
 ## Code Quality Commands
 
 ```bash
-rye run pytest tests/ -v          # Run all tests
-rye run ruff check src/ tests/    # Lint check
-rye run ruff check --fix src/ tests/  # Auto-fix lint issues
-rye run mypy src/                 # Type check
+uv run pytest tests/ -v               # Run all tests
+uv run ruff check src/ tests/         # Lint check
+uv run ruff check --fix src/ tests/   # Auto-fix lint issues
+uv run mypy src/                      # Type check
 ```
 
 ## Notification Message Format
@@ -144,4 +144,3 @@ Current payload policy:
 - Body following lines: numbered entries with role/date/info metadata
 
 This standardized payload is passed to all notifier backends. Each backend can further wrap it via template variables `{title}` and `{message}`.
-

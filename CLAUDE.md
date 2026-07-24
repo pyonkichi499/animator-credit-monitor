@@ -5,7 +5,7 @@ Automated system to detect new animation credits for specified animators on web 
 
 ## Tech Stack
 - **Language:** Python 3.13 (requires >= 3.11)
-- **Project Management:** Rye
+- **Project Management:** uv
 - **CLI:** Click
 - **Libraries:** python-dotenv, requests, beautifulsoup4, google-cloud-firestore
 - **Testing:** pytest, responses (HTTP mocking)
@@ -37,12 +37,12 @@ devlog/                        # Development diary
 
 ## Key Commands
 ```bash
-rye sync                                    # Install dependencies
-rye run pytest tests/ -v                    # Run all tests
-rye run ruff check src/ tests/              # Lint check
-rye run mypy src/                           # Type check
-rye run animator-credit-monitor check       # Run credit check
-rye run animator-credit-monitor --help      # Show CLI help
+uv sync --locked                            # Install dependencies
+uv run pytest tests/ -v                     # Run all tests
+uv run ruff check src/ tests/               # Lint check
+uv run mypy src/                            # Type check
+uv run animator-credit-monitor check        # Run credit check
+uv run animator-credit-monitor --help       # Show CLI help
 ```
 
 ## CLI Options

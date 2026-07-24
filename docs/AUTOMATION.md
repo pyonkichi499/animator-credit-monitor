@@ -13,7 +13,7 @@ crontab -e
 2. Add a daily check (e.g., every day at 9:00 AM):
 
 ```cron
-0 9 * * * cd /path/to/animator-credit-monitor && /path/to/.rye/shims/rye run animator-credit-monitor check >> /path/to/logs/monitor.log 2>&1
+0 9 * * * cd /path/to/animator-credit-monitor && /path/to/uv run animator-credit-monitor check >> /path/to/logs/monitor.log 2>&1
 ```
 
 ### Recommended Frequency
@@ -26,7 +26,7 @@ crontab -e
 Add a log rotation:
 
 ```cron
-0 9 * * * cd /path/to/animator-credit-monitor && /path/to/.rye/shims/rye run animator-credit-monitor check >> /path/to/logs/monitor_$(date +\%Y\%m\%d).log 2>&1
+0 9 * * * cd /path/to/animator-credit-monitor && /path/to/uv run animator-credit-monitor check >> /path/to/logs/monitor_$(date +\%Y\%m\%d).log 2>&1
 ```
 
 ## Task Scheduler (Windows)
@@ -35,7 +35,7 @@ Add a log rotation:
 2. Create a new Basic Task
 3. Set trigger to "Daily"
 4. Set action to "Start a program":
-   - Program: `rye`
+   - Program: `uv`
    - Arguments: `run animator-credit-monitor check`
    - Start in: `C:\path\to\animator-credit-monitor`
 
@@ -50,7 +50,7 @@ Description=Animator Credit Monitor
 [Service]
 Type=oneshot
 WorkingDirectory=/path/to/animator-credit-monitor
-ExecStart=/path/to/.rye/shims/rye run animator-credit-monitor check
+ExecStart=/path/to/uv run animator-credit-monitor check
 ```
 
 ### Timer file (`/etc/systemd/user/animator-monitor.timer`)
@@ -123,4 +123,3 @@ SMTP_PASS=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 Also set `SMTP_FROM` to a verified sender/domain in SendGrid.
-

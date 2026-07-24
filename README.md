@@ -15,14 +15,14 @@
 ### Prerequisites
 
 - Python 3.11+
-- [Rye](https://rye.astral.sh/)
+- [uv](https://docs.astral.sh/uv/)
 
 ### Installation
 
 ```bash
 git clone https://github.com/pyonkichi499/animator-credit-monitor.git
 cd animator-credit-monitor
-rye sync
+uv sync --locked
 ```
 
 ### Configuration
@@ -82,20 +82,20 @@ LINE_MESSAGE_TEMPLATE={title}\n{message}
 ### Check for new credits
 
 ```bash
-rye run animator-credit-monitor check
+uv run animator-credit-monitor check
 ```
 
 ### Options
 
 ```bash
 # Dry run (check without saving state)
-rye run animator-credit-monitor check --dry-run
+uv run animator-credit-monitor check --dry-run
 
 # Check only Bangumi
-rye run animator-credit-monitor check --bangumi-only
+uv run animator-credit-monitor check --bangumi-only
 
 # Check only AniList/name-based source
-rye run animator-credit-monitor check --anilist-only
+uv run animator-credit-monitor check --anilist-only
 ```
 
 > 現状メモ: name ベースの監視は AniList を直接利用します。
@@ -104,8 +104,8 @@ rye run animator-credit-monitor check --anilist-only
 ### Show help
 
 ```bash
-rye run animator-credit-monitor --help
-rye run animator-credit-monitor check --help
+uv run animator-credit-monitor --help
+uv run animator-credit-monitor check --help
 ```
 
 ## Notifications
@@ -261,7 +261,7 @@ LINE_NOTIFY_API_URL=https://notify-api.line.me/api/notify
 ## Testing
 
 ```bash
-rye run pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ## State Management

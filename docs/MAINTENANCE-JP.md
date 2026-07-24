@@ -92,7 +92,7 @@ rm data/sakugawiki_椛沢祥平_history.json # 作画@wiki（特定アニメー�
 
 ```bash
 rm data/bangumi_*_history.json
-rye run animator-credit-monitor check --bangumi-only
+uv run animator-credit-monitor check --bangumi-only
 ```
 
 ## エンコーディング
@@ -129,10 +129,10 @@ class DiscordNotifier(Notifier):
 ## コード品質コマンド
 
 ```bash
-rye run pytest tests/ -v          # 全テスト実行
-rye run ruff check src/ tests/    # lint チェック
-rye run ruff check --fix src/ tests/  # lint 自動修正
-rye run mypy src/                 # 型チェック
+uv run pytest tests/ -v               # 全テスト実行
+uv run ruff check src/ tests/         # lint チェック
+uv run ruff check --fix src/ tests/   # lint 自動修正
+uv run mypy src/                      # 型チェック
 ```
 
 ## 通知メッセージ形式
@@ -144,4 +144,3 @@ rye run mypy src/                 # 型チェック
 - 本文2行目以降: 連番付きエントリ（役職/日付/付帯情報を付与）
 
 この標準化ペイロードを全 notifier に渡し、必要に応じて `{title}` / `{message}` テンプレートでチャネル別整形を行う。
-

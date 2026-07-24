@@ -5,7 +5,7 @@
 
 ## 技術スタック
 - **言語:** Python 3.13（>= 3.11 必須）
-- **プロジェクト管理:** Rye
+- **プロジェクト管理:** uv
 - **CLI:** Click
 - **ライブラリ:** python-dotenv, requests, beautifulsoup4, google-cloud-firestore
 - **テスト:** pytest, responses（HTTPモック用）
@@ -37,12 +37,12 @@ devlog/                        # 開発ダイアリー
 
 ## 主要コマンド
 ```bash
-rye sync                                    # 依存関係インストール
-rye run pytest tests/ -v                    # 全テスト実行
-rye run ruff check src/ tests/              # lint チェック
-rye run mypy src/                           # 型チェック
-rye run animator-credit-monitor check       # クレジットチェック実行
-rye run animator-credit-monitor --help      # CLIヘルプ表示
+uv sync --locked                            # 依存関係インストール
+uv run pytest tests/ -v                     # 全テスト実行
+uv run ruff check src/ tests/               # lint チェック
+uv run mypy src/                            # 型チェック
+uv run animator-credit-monitor check        # クレジットチェック実行
+uv run animator-credit-monitor --help       # CLIヘルプ表示
 ```
 
 ## CLI オプション

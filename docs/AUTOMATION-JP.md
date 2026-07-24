@@ -13,7 +13,7 @@ crontab -e
 2. 毎日1回のチェックを追加（例: 毎日 9:00）:
 
 ```cron
-0 9 * * * cd /path/to/animator-credit-monitor && /path/to/.rye/shims/rye run animator-credit-monitor check >> /path/to/logs/monitor.log 2>&1
+0 9 * * * cd /path/to/animator-credit-monitor && /path/to/uv run animator-credit-monitor check >> /path/to/logs/monitor.log 2>&1
 ```
 
 ### 推奨実行頻度
@@ -26,7 +26,7 @@ crontab -e
 日付ごとにログローテーション:
 
 ```cron
-0 9 * * * cd /path/to/animator-credit-monitor && /path/to/.rye/shims/rye run animator-credit-monitor check >> /path/to/logs/monitor_$(date +\%Y\%m\%d).log 2>&1
+0 9 * * * cd /path/to/animator-credit-monitor && /path/to/uv run animator-credit-monitor check >> /path/to/logs/monitor_$(date +\%Y\%m\%d).log 2>&1
 ```
 
 ## タスクスケジューラ (Windows)
@@ -35,7 +35,7 @@ crontab -e
 2. 「基本タスクの作成」を選択
 3. トリガーを「毎日」に設定
 4. 操作を「プログラムの開始」に設定:
-   - プログラム: `rye`
+   - プログラム: `uv`
    - 引数: `run animator-credit-monitor check`
    - 開始: `C:\path\to\animator-credit-monitor`
 
@@ -50,7 +50,7 @@ Description=Animator Credit Monitor
 [Service]
 Type=oneshot
 WorkingDirectory=/path/to/animator-credit-monitor
-ExecStart=/path/to/.rye/shims/rye run animator-credit-monitor check
+ExecStart=/path/to/uv run animator-credit-monitor check
 ```
 
 ### タイマーファイル (`/etc/systemd/user/animator-monitor.timer`)
@@ -123,4 +123,3 @@ SMTP_PASS=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 `SMTP_FROM` は SendGrid 側で認証済みの送信元（Sender Identity / Domain Authentication）を使うこと。
-
