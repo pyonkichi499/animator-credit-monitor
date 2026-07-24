@@ -32,11 +32,13 @@ jobs:
           restore-keys: |
             history-${{ github.ref_name }}-
 
-      - name: Setup Rye
-        uses: eifinger/setup-rye@v4
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
 
       - name: Install dependencies
-        run: rye sync
+        run: uv sync --locked --no-dev
 
       - name: Run credit monitor
         env:
@@ -70,7 +72,7 @@ jobs:
           LINE_MESSAGE_TEMPLATE: ${{ vars.LINE_MESSAGE_TEMPLATE || secrets.LINE_MESSAGE_TEMPLATE || '{title}\n{message}' }}
           # DATA_DIR is only used when STATE_BACKEND=local
           DATA_DIR: data
-        run: rye run animator-credit-monitor check
+        run: uv run --locked --no-dev animator-credit-monitor check
 
       - name: Ensure history directory exists
         run: mkdir -p data
