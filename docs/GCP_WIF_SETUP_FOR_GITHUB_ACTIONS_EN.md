@@ -1,92 +1,50 @@
-# GCP WIF Setup for GitHub Actions (Firestore)
+# GCP WIF Setup for GitHub Actions
 
-Scope:
-- Use Firestore from GitHub Actions
-- Avoid placing Service Account JSON keys in GitHub Secrets
-- Use Workload Identity Federation (WIF)
+This guide configures keyless Firestore access from GitHub Actions without storing a Service Account JSON key.
 
-Prerequisites:
-- `gcloud` is available
-- GCP project already created
-- Firestore (Native mode) already enabled
+This repository does not include scripts that create WIF resources. Review the commands below and run them manually or translate them into your own IaC.
 
-What this guide creates:
-- Service Account (for Firestore access)
-- Workload Identity Pool
-- GitHub OIDC Provider
-- Impersonation permission from the GitHub repository
-
-Scripts:
-- `scripts/gcp/setup_github_actions_wif.sh`
-- `scripts/gcp/print_github_actions_wif_secrets.sh`
-- `scripts/gcp/load_wif_env.template.sh` (local environment template)
-- `scripts/gcp/run_wif_setup_with_local_env.sh` (local env loading wrapper)
-- `scripts/github/actions.vars.template.sh` (shell syntax template / for IDE highlighting)
-- `scripts/github/actions.secrets.template.sh` (shell syntax template / for IDE highlighting)
-- `scripts/github/set_actions_config_from_local_env.sh` (`gh` CLI registration)
-- `scripts/gcp/secret_manager_sync_from_env.sh` (sync the same secrets file to Secret Manager)
-- `scripts/gcp/print_cloud_run_job_config_args.sh` (output Cloud Run arguments from the same vars/secrets files)
-- `scripts/gcp/bootstrap_cloud_run_runtime_config_from_local_env.sh` (all-in-one for Cloud Run migration)
-
-All actual values are passed via environment variables (credentials and project-specific values are never stored in Git-managed files).
-
----
-
-## 1. Set Variables
+## 1. Choose Values
 
 ```bash
-PROJECT_ID="animator-credit-monitor"
+PROJECT_ID="your-project-id"
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 POOL_ID="github-pool"
 PROVIDER_ID="github-provider"
 SA_NAME="animator-credit-monitor"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-
-# GitHub repository (owner/repo)
-GITHUB_OWNER="your-github-owner"
-GITHUB_REPO="your-repo"
-GITHUB_REF="refs/heads/main"
+GITHUB_OWNER="your-owner"
+GITHUB_REPO="animator-credit-monitor"
+GITHUB_REF="refs/heads/develop"
 ```
 
-Or, using the scripts:
+The current scheduled workflow runs from `develop`. If you move it to `main`, update the provider condition accordingly.
+
+## 2. APIs and Firestore
 
 ```bash
-cp scripts/gcp/load_wif_env.template.sh scripts/gcp/load_wif_env.local.sh
-# Edit scripts/gcp/load_wif_env.local.sh (gitignored)
-bash scripts/gcp/run_wif_setup_with_local_env.sh
-# review-first wrapper (preview only)
-bash scripts/github/bootstrap_gcp_wif_and_actions_config.sh
-# execute after review
-APPLY=1 bash scripts/github/bootstrap_gcp_wif_and_actions_config.sh
+gcloud services enable \
+  iamcredentials.googleapis.com \
+  sts.googleapis.com \
+  firestore.googleapis.com \
+  --project="$PROJECT_ID"
 ```
 
----
+Create Firestore in Native mode through the GCP Console. Review the location before creation because it cannot be changed later.
 
-## 2. Manual Execution (Reference)
-
-The following `gcloud` commands are equivalent to what the scripts do. Using the scripts is generally recommended.
+## 3. Service Account
 
 ```bash
 gcloud iam service-accounts create "$SA_NAME" \
   --project="$PROJECT_ID" \
   --display-name="Animator Credit Monitor (GitHub Actions)"
-```
 
-Firestore access permissions (minimal configuration)
-
-```bash
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/datastore.user"
 ```
 
-Notes:
-- `roles/datastore.user` is used for Firestore document read/write
-- If further restriction is needed, consider creating a custom role later
-
----
-
-## 3. Create Workload Identity Pool / Provider
+## 4. Workload Identity Pool / Provider
 
 ```bash
 gcloud iam workload-identity-pools create "$POOL_ID" \
@@ -104,13 +62,18 @@ gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" \
   --attribute-condition="assertion.repository=='${GITHUB_OWNER}/${GITHUB_REPO}' && assertion.ref=='${GITHUB_REF}'"
 ```
 
-Notes:
-- `attribute-condition` restricts access by repository / branch
-- Adjust the condition if you want to allow PR runs or multiple branches
+Get the provider resource name:
 
----
+```bash
+WIF_PROVIDER="$(gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
+  --project="$PROJECT_ID" \
+  --location="global" \
+  --workload-identity-pool="$POOL_ID" \
+  --format='value(name)')"
+printf '%s\n' "$WIF_PROVIDER"
+```
 
-## 4. Grant Service Account Usage Permission to GitHub OIDC Principal
+## 5. Service Account Impersonation
 
 ```bash
 gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
@@ -119,93 +82,35 @@ gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
   --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/attribute.repository/${GITHUB_OWNER}/${GITHUB_REPO}"
 ```
 
----
+## 6. GitHub Variables
 
-## 5. Values to Set in GitHub Actions Secrets
-
-GitHub Repository -> `Settings` -> `Secrets and variables` -> `Actions`
-
-Required (GCP/WIF):
-- Register as GitHub **Variables**:
-  - `GCP_PROJECT_ID`
-  - `GCP_WORKLOAD_IDENTITY_PROVIDER`
-  - `GCP_SERVICE_ACCOUNT`
-
-Verify the values:
+The current `.github/workflows/daily-credit-check.yml` reads these values from `vars.*`:
 
 ```bash
-bash scripts/gcp/print_github_actions_wif_secrets.sh
+gh variable set GCP_PROJECT_ID --body "$PROJECT_ID"
+gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body "$WIF_PROVIDER"
+gh variable set GCP_SERVICE_ACCOUNT --body "$SA_EMAIL"
 ```
 
-Recommended:
-- Non-sensitive values go in GitHub **Variables**
-- Passwords / tokens / personal email addresses go in GitHub **Secrets**
+Registering them only as Secrets does not activate the WIF step.
 
-Templates:
-- `scripts/github/actions.vars.template.sh`
-- `scripts/github/actions.secrets.template.sh`
-- Legacy combined version: `templates/gmail_github_secrets.template.txt`
+## 7. Firestore TTL
 
-Example of registering via `gh` CLI:
+In GCP Console → Firestore → TTL, set `expiresAt` for:
 
-```bash
-cp scripts/github/actions.vars.template.sh scripts/github/actions.vars.local.sh
-cp scripts/github/actions.secrets.template.sh scripts/github/actions.secrets.local.sh
-# Edit both files (gitignored)
-bash scripts/github/set_actions_config_from_local_env.sh        # preview only
-APPLY=1 bash scripts/github/set_actions_config_from_local_env.sh
-```
+- `runs`
+- `events`
+- `deliveries`
 
-The same local files can be reused when migrating to Cloud Run:
-
-```bash
-export PROJECT_ID="your-gcp-project-id"
-bash scripts/gcp/bootstrap_cloud_run_runtime_config_from_local_env.sh
-```
-
-The above will:
-- Sync values from `actions.secrets.local.sh` to GCP Secret Manager
-- Output `--set-env-vars` / `--set-secrets` arguments for the Cloud Run Job
-
----
-
-## 6. Configure Firestore TTL (30 days)
-
-This application uses the following field names:
-- `runs.expiresAt`
-- `events.expiresAt`
-- `deliveries.expiresAt`
-
-The easiest way to enable TTL is through the GCP Console.
-
-Steps (Console):
-1. Go to Firestore -> `TTL`
-2. Select the `runs` collection and set the TTL field to `expiresAt`
-3. Do the same for `events`
-4. Do the same for `deliveries`
-
-Do not set TTL on `snapshots` (it serves as the comparison baseline).
-
----
-
-## 7. Gmail SMTP Notes
-
-- When using Gmail SMTP, use an **App Password** instead of a regular Google account password
-- Enable 2-Step Verification and generate an App Password
-- Set `SMTP_PASS` to the App Password (16 characters)
-
-Recommended settings:
-- `SMTP_HOST=smtp.gmail.com`
-- `SMTP_PORT=587`
-- `SMTP_USE_TLS=true`
-- `SMTP_USER=<your gmail address>`
-- `SMTP_FROM=<same gmail address>`
-
----
+Do not enable TTL for `snapshots`.
 
 ## 8. Verification
 
-1. Configure GitHub Secrets
-2. Manually trigger `Daily Credit Check`
-3. Verify that `runs` / `events` / `deliveries` / `snapshots` are created in Firestore
-4. Verify that on `partial_failure`, the Actions run fails (red) and the state is persisted in Firestore
+1. Register the three WIF Variables.
+2. Register either `TARGET_BANGUMI_ID` or `TARGET_NAME`.
+3. Register `NOTIFIER`, `SMTP_PORT`, and any required SMTP settings.
+4. Actions → Daily Credit Check → Run workflow.
+5. Confirm that the WIF step succeeds.
+6. Confirm that a Firestore `runs` document is created.
+
+If the WIF step is skipped, `GCP_WORKLOAD_IDENTITY_PROVIDER` or `GCP_SERVICE_ACCOUNT` is empty.

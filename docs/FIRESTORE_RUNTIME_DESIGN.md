@@ -1,123 +1,139 @@
-# Firestore Runtime Design (GitHub Actions Phase 1)
+# Firestore Runtime Design
 
-対象:
-- 実行基盤: GitHub Actions
-- 状態保存: Firestore
-- 認証: GitHub OIDC + Workload Identity Federation (WIF)
+## 対象
 
-方針:
+- 状態バックエンド: `STATE_BACKEND=firestore`
+- 実行基盤: 主に GitHub Actions
+- 認証: Application Default Credentials。GitHub Actions では OIDC + WIF を使用
 - 配送保証: `at-least-once`
-- 部分失敗 (`partial_failure`) は Firestore に記録しつつ GitHub Actions は `exit code != 0`
-- `snapshots` は「比較基準」
-- `snapshots` 更新条件は `events + deliveries` 永続化成功時
-
----
 
 ## Collections
 
-### `snapshots` (TTLなし)
+`FIRESTORE_COLLECTION_PREFIX=dev` の場合、以下は `dev_snapshots` のような名前になります。
 
-目的:
-- 差分検知の比較基準（前回取得結果）
+### `snapshots`
 
-ドキュメントID例:
-- `bangumi_12345`
-- `anilist_山田太郎`
+差分比較の基準。TTLなし。
 
-主要フィールド:
+ドキュメントID:
+
+- `bangumi_{person_id}`
+- `anilist_{target_name}`
+
+フィールド:
+
 - `sourceType`
 - `sourceKey`
 - `targetLabel`
-- `lastSnapshot` (array)
+- `lastSnapshot`
 - `lastSnapshotHash`
 - `lastCheckedAt`
 - `updatedAt`
 
-### `runs` (TTL 30日)
+`lastSnapshotHash` は保存していますが、現状の差分判定は各要素の JSON シリアライズ比較を使用します。
 
-目的:
-- 実行履歴サマリー
+### `runs`
 
-主要フィールド:
-- `startedAt`
-- `finishedAt`
-- `status` (`running` / `success` / `partial_failure`)
-- `runtime` (`github_actions`)
-- `triggerType` (`schedule` / `manual`)
+実行監査。`expiresAt` による30日TTLを想定。
+
+フィールド:
+
+- `startedAt`, `finishedAt`
+- `status`: `running` / `success` / `partial_failure` / `failed`
+- `runtime`: 現在のCLIは `github_actions` を設定
+- `triggerType`: `manual` / `schedule`
 - `dryRun`
 - `summary`
 - `errors`
 - `expiresAt`
 
-### `events` (TTL 30日)
+例外発生時も `finally` で `failed` として終了更新を試みます。
 
-目的:
-- 検知イベント（Outbox親）
+### `events`
 
-主要フィールド:
+検知差分を保持する Outbox 親。30日TTLを想定。
+
+フィールド:
+
 - `runId`
-- `sourceKey`
-- `sourceType`
-- `eventType` (`new_credits_detected`)
-- `payload` (`title`, `message`, `diffItems`, `diffCount`)
+- `sourceKey`, `sourceType`
+- `eventType`: `new_credits_detected`
+- `payload`: `title`, `message`, `diffItems`, `diffCount`
 - `diffCount`
-- `status` (`pending` / `partially_sent` / `sent` / `failed`)
+- `status`: `pending` / `sent` / `partially_sent` / `failed`
 - `dedupeKey`
-- `createdAt`
-- `updatedAt`
-- `expiresAt`
+- `createdAt`, `updatedAt`, `expiresAt`
 
-### `deliveries` (TTL 30日)
+`dedupeKey` は source key と diff の SHA-256 です。現在は保存のみで、一意性チェックや既存event検索には使用していません。
 
-目的:
-- 通知先ごとの配送状態（再送対象）
+### `deliveries`
 
-主要フィールド:
-- `eventId`
-- `runId`
-- `channel` (`email` / `line` / `console`)
+通知先ごとの配送状態。30日TTLを想定。
+
+フィールド:
+
+- `eventId`, `runId`
+- `channel`: `console` / `email`
 - `destinationKey`
-- `status` (`pending` / `failed` / `sent`)
+- `status`: `pending` / `failed` / `sent`
 - `attemptCount`
-- `maxAttempts`
+- `maxAttempts`: 現在は `50` を保存するが、上限判定には未使用
 - `nextRetryAt`
 - `lastErrorMessage`
-- `createdAt`
-- `updatedAt`
-- `expiresAt`
+- `sentAt`（成功後）
+- `createdAt`, `updatedAt`, `expiresAt`
 
----
-
-## Execution Flow
+## 実行フロー
 
 1. `runs` を `running` で作成
-2. `deliveries` の `pending/failed` で `nextRetryAt <= now` を再送（持ち越し再送）
-3. 各 source を取得し diff 判定
-4. diff があれば `events + deliveries` を作成（Outbox化）
-5. 4 が成功したら `snapshots` を更新
-6. 新規 `deliveries` を即時配送（in-run retryあり）
-7. `events.status` を `deliveries` から集約更新
-8. `runs` を `success` または `partial_failure` で終了
+2. 既存の retryable delivery を最大100件取得して再送
+3. 各 source を取得
+4. 空の取得結果はスキップし、snapshot を維持
+5. snapshot と取得結果を比較
+6. 差分なしの場合、非dry-runなら snapshot を保存してチェック時刻を更新
+7. 差分あり・非dry-runの場合:
+   1. event と各deliveryを Firestore batch で保存
+   2. batch成功後に snapshot を更新
+   3. 新規deliveryを即時送信
+   4. delivery結果からevent statusを集約
+8. `runs` を `success` / `partial_failure` / `failed` で終了
 
----
+## Retry
 
-## Retry Policy
+### 同一実行内
 
-初期値:
-- `NOTIFY_RETRY_MAX_RETRIES=2`
-- `NOTIFY_RETRY_INITIAL_DELAY_SECONDS=60`
+- 試行回数: `NOTIFY_RETRY_MAX_RETRIES + 1`
+- デフォルト: 初回 + 2回再試行
+- 待機: 60秒 → 120秒（倍率2）
 
-挙動:
-- 同一実行内リトライ: 60s -> 120s （合計3試行）
-- 失敗時は `deliveries.nextRetryAt` を指数バックオフで更新し、次回実行で再送
+### 次回実行
 
----
+- 対象: `pending` / `failed` かつ `nextRetryAt <= now`
+- 1 run あたり最大100件
+- 配送失敗時に `attemptCount` を1増加
+- `nextRetryAt` は persisted `attemptCount` に基づく指数バックオフ
 
-## Exit Code Policy (GitHub Actions)
+現状、`maxAttempts` に達したdeliveryを停止する処理や dead-letter collection はありません。TTLで削除されるまで再送対象になり得ます。
 
-- `0`: 完全成功
-- `非0`: `partial_failure` を含むエラーあり
+## `--dry-run`
 
-補足:
-- `partial_failure` でも `runs.status` と `deliveries` に状態が保存されるため、次回実行で再送可能
+Firestore dry-runでも:
 
+- `runs` は作成・終了される
+- run開始時の**既存delivery再送は実行され、delivery/event状態を更新し得る**
+- 新規差分の event / delivery / snapshot は作成・更新しない
+- 新規差分の通知は Outbox を介さず直接送信する
+
+したがって、`--dry-run` は「監視対象の新しい状態を保存しない」オプションであり、Firestore 全体を完全に読み取り専用にするオプションではありません。
+
+## Status / Exit Code
+
+- `success`: 配送失敗なし
+- `partial_failure`: 新規配送または再送に失敗あり
+- `failed`: 予期しない例外
+
+CLI は `partial_failure` を含むエラー時に非0で終了します。状態は Firestore に残るため、次回runで再送できます。
+
+## TTL型
+
+Firestore TTL対象の `expiresAt` は timezone-aware `datetime` として保存します。その他の時刻フィールドの多くは ISO 8601 文字列です。

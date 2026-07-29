@@ -1,175 +1,142 @@
-# Setup Checklist (For Safe Operations)
+# Setup Checklist
 
-Purpose:
-- Safely set up `GitHub Actions + Firestore + WIF + Gmail SMTP`
-- Keep credentials out of Git version control
-- Proceed with reviewable steps rather than relying on a single "run-it-all" script
-
-Approach (Recommended)
-- GCP resource creation: `Terraform` (recommended)
-- Alternative: Run `gcloud` commands manually (reviewing each command as you go)
-- GitHub configuration: Explicitly register `Variables` / `Secrets` using the `gh` CLI
-
-Notes:
-- Existing `scripts/` may be used, but are not required
-- This checklist assumes you will proceed manually while reviewing each step
-
----
+Checklist for operating with `GitHub Actions + Firestore + WIF + SMTP email`.
 
 ## 0. Prerequisites
 
-- [ ] `gcloud` is available
-- [ ] `gh` is available (verify with `gh auth status`)
-- [ ] The target GitHub repository has `Actions` permissions enabled
-- [ ] A target GCP project exists
-- [ ] Using Firestore (Native mode) is acceptable
+- [ ] `gcloud` is available.
+- [ ] `gh auth status` succeeds.
+- [ ] A GCP project exists.
+- [ ] Firestore Native mode can be enabled.
+- [ ] You can configure GitHub Actions.
 
----
+## 1. Monitoring Target
 
-## 1. Organize Values (Decide in Advance)
+Set at least one:
 
-Non-sensitive (GitHub Variables candidates)
+- [ ] `TARGET_BANGUMI_ID`
+- [ ] `TARGET_NAME`
+
+When both are set, `check` without a source-only option checks both sources.
+
+## 2. GitHub Variables
+
+Firestore / WIF:
+
 - [ ] `GCP_PROJECT_ID`
-- [ ] `GCP_WORKLOAD_IDENTITY_PROVIDER` (after WIF creation)
-- [ ] `GCP_SERVICE_ACCOUNT` (after WIF creation)
+- [ ] `GCP_WORKLOAD_IDENTITY_PROVIDER`
+- [ ] `GCP_SERVICE_ACCOUNT`
 - [ ] `STATE_BACKEND=firestore`
-- [ ] `NOTIFIER=email` (or `NOTIFIERS=email,line`)
-- [ ] `SMTP_HOST=smtp.gmail.com`
-- [ ] `SMTP_PORT=587`
-- [ ] `SMTP_USE_TLS=true`
-- [ ] `NOTIFY_RETRY_MAX_RETRIES=2`
-- [ ] `NOTIFY_RETRY_INITIAL_DELAY_SECONDS=60`
 - [ ] `FIRESTORE_DATABASE=(default)` (optional)
 - [ ] `FIRESTORE_COLLECTION_PREFIX` (optional)
 
-Sensitive (GitHub Secrets candidates)
-- [ ] `SMTP_PASS` (Gmail App Password)
-- [ ] `SMTP_USER` (treat as Secret if needed)
+Monitoring and notification:
+
+- [ ] either `TARGET_BANGUMI_ID` or `TARGET_NAME`
+- [ ] `NOTIFIER=email` (`console` is useful before testing email)
+- [ ] `SMTP_PORT=587`
+- [ ] `NOTIFY_RETRY_MAX_RETRIES=2`
+- [ ] `NOTIFY_RETRY_INITIAL_DELAY_SECONDS=60`
+
+Email:
+
+- [ ] `SMTP_HOST=smtp.gmail.com`
+- [ ] `SMTP_USE_TLS=true`
+- [ ] `EMAIL_SUBJECT_TEMPLATE` (optional)
+- [ ] `EMAIL_BODY_TEMPLATE` (optional)
+
+The current workflow reads the three GCP/WIF values from `vars.*`, so register them as Variables rather than Secrets.
+
+## 3. GitHub Secrets
+
+Email:
+
 - [ ] `SMTP_FROM`
 - [ ] `SMTP_TO`
-- [ ] `TARGET_NAME` (if you prefer not to expose it)
-- [ ] `LINE_NOTIFY_TOKEN` (if used)
+- [ ] `SMTP_USER`
+- [ ] `SMTP_PASS`
 
----
+Optional:
 
-## 2. GCP Resource Creation (Terraform Recommended)
+- [ ] `TARGET_NAME` when the name should remain private; the Secret takes precedence over the Variable.
 
-### 2-1. Resources to Manage with Terraform (Recommended)
+Gmail:
 
-- [ ] Service Account (for Firestore access)
-- [ ] IAM role binding (`roles/datastore.user`)
-- [ ] Workload Identity Pool
-- [ ] GitHub OIDC Provider
-- [ ] `roles/iam.workloadIdentityUser` binding to the Service Account
+- [ ] Enable 2-Step Verification.
+- [ ] Create an App Password.
+- [ ] Store the App Password, not the normal account password, in `SMTP_PASS`.
 
-### 2-2. Steps When Using Terraform (Recommended)
+## 4. Registration with GitHub CLI
 
-- [ ] Review `terraform plan` before running `apply`
-- [ ] Decide where to store tfstate (local or remote backend)
-- [ ] Do not commit sensitive values in `.tfvars` to Git (or use Terraform Cloud Variables)
-- [ ] After creation, record the following:
-  - [ ] `GCP_PROJECT_ID`
-  - [ ] `GCP_WORKLOAD_IDENTITY_PROVIDER`
-  - [ ] `GCP_SERVICE_ACCOUNT`
+Variables:
 
-### 2-3. Using `gcloud` Instead of Terraform (Alternative)
+```bash
+gh variable set GCP_PROJECT_ID --body "your-project-id"
+gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body "projects/123456789/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+gh variable set GCP_SERVICE_ACCOUNT --body "animator-credit-monitor@your-project-id.iam.gserviceaccount.com"
+gh variable set STATE_BACKEND --body "firestore"
+gh variable set TARGET_BANGUMI_ID --body "12345"
+gh variable set NOTIFIER --body "email"
+gh variable set SMTP_HOST --body "smtp.gmail.com"
+gh variable set SMTP_PORT --body "587"
+gh variable set SMTP_USE_TLS --body "true"
+```
 
-- [ ] `gcloud auth login`
-- [ ] `gcloud config set project <PROJECT_ID>`
-- [ ] Review and execute each `gcloud` command one at a time
-- [ ] Save execution logs/output (for reproducibility)
+Interactive Secret entry:
 
-Reference:
-- `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md`
+```bash
+gh secret set SMTP_FROM
+gh secret set SMTP_TO
+gh secret set SMTP_USER
+gh secret set SMTP_PASS
+```
 
----
+Verify:
 
-## 3. Firestore Initial Setup (GCP Console)
+```bash
+gh variable list
+gh secret list
+```
 
-- [ ] Enable Firestore in Native mode (if not already done)
-- [ ] Configure TTL (on the `expiresAt` field)
-  - [ ] `runs`
-  - [ ] `events`
-  - [ ] `deliveries`
-- [ ] Do not configure TTL for `snapshots`
+## 5. GCP / WIF
 
----
+- [ ] Create a Service Account for Firestore.
+- [ ] Grant `roles/datastore.user`.
+- [ ] Create a Workload Identity Pool / Provider.
+- [ ] Grant the GitHub repository `roles/iam.workloadIdentityUser` on the Service Account.
 
-## 4. Gmail SMTP Preparation
+See [`GCP_WIF_SETUP_FOR_GITHUB_ACTIONS_EN.md`](GCP_WIF_SETUP_FOR_GITHUB_ACTIONS_EN.md).
 
-- [ ] Enable 2-Step Verification on your Google account
-- [ ] Create an App Password
-- [ ] Save the App Password as `SMTP_PASS` (the value to store in GitHub Secrets)
-- [ ] Use the same Gmail address for both `SMTP_FROM` and `SMTP_USER`
+## 6. Firestore TTL
 
----
+Configure `expiresAt` as the TTL field for:
 
-## 5. Register GitHub Actions Variables / Secrets
+- [ ] `runs`
+- [ ] `events`
+- [ ] `deliveries`
 
-### 5-1. Registration Method (Recommended)
+Do not configure TTL for `snapshots`.
 
-- [ ] Register Variables using `gh variable set ...`
-- [ ] Register Secrets using `gh secret set ...`
-- [ ] Review registration commands before executing (check copy-pasted content)
-- [ ] When using helper scripts, first verify in preview-only mode (the default)
-- [ ] Only add `APPLY=1` when you are ready to apply changes
+## 7. First Run
 
-### 5-2. Verify Registration
+- [ ] Actions → Daily Credit Check → Run workflow
+- [ ] The WIF step is not skipped.
+- [ ] `Run credit monitor` runs without configuration errors.
+- [ ] `runs` and `snapshots` are created.
+- [ ] When a diff exists, `events` and `deliveries` are created.
+- [ ] Email is delivered.
 
-- [ ] Verify Variables with `gh variable list`
-- [ ] Verify Secret names with `gh secret list` (values are not displayed)
-- [ ] Make a final decision on whether `TARGET_NAME` should be a Variable or a Secret
+## 8. Ongoing Operations
 
-Note:
-- In this repository, the `workflow` supports both `vars.*` and `secrets.*` (with priority depending on the item)
+- [ ] The same diff is not repeatedly notified without reason.
+- [ ] Failed deliveries are retried on the next run.
+- [ ] TTL is working.
+- [ ] GitHub Actions failure notifications are enabled.
 
----
+## 9. Not Currently Implemented
 
-## 6. First Run (GitHub Actions)
-
-- [ ] `Actions` → `Daily Credit Check` → `Run workflow`
-- [ ] `Authenticate to Google Cloud (WIF)` succeeds
-- [ ] `Run credit monitor` executes
-- [ ] Check logs on failure (WIF / Firestore / SMTP)
-
----
-
-## 7. Post-First-Run Verification (Firestore / Email)
-
-- [ ] Firestore collections are created
-  - [ ] `runs`
-  - [ ] `events`
-  - [ ] `deliveries`
-  - [ ] `snapshots`
-- [ ] `runs.status` is as expected (`success` or `partial_failure`)
-- [ ] Gmail notification is received (when there are diffs)
-- [ ] In case of `partial_failure`, failed state remains in `deliveries`
-
----
-
-## 8. Operational Verification (Following Days)
-
-- [ ] Failed `deliveries` are retried on the next run
-- [ ] TTL for `runs/events/deliveries` is functioning correctly
-- [ ] No excessive unintended duplicate notifications are occurring
-
----
-
-## 9. Future (When Migrating to Cloud Run)
-
-- [ ] Inventory the values stored in GitHub Variables/Secrets
-- [ ] Move `Secrets` to Secret Manager (`SMTP_PASS`, `LINE_NOTIFY_TOKEN`, etc.)
-- [ ] Review and configure Cloud Run Job `--set-env-vars` / `--set-secrets`
-- [ ] Continue using WIF (if GitHub-to-GCP integration is still needed)
-
-Note:
-- The current codebase is structured with Cloud Run migration in mind (Firestore + Outbox)
-
----
-
-## 10. Not Doing Today (Can Be Deferred)
-
-- [ ] Terraform migration (do it later if not yet done)
-- [ ] Monitoring dashboard (BigQuery / Looker Studio)
-- [ ] Cloud Run migration
-- [ ] Full migration to Secret Manager
+- Concurrent-run locking
+- Dedicated dead-letter collection
+- Redelivery stopping based on `maxAttempts`
+- Automated Secret Manager / Cloud Run Job migration
+- Terraform configuration

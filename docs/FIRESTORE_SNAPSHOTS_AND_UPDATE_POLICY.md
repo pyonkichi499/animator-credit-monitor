@@ -1,173 +1,70 @@
-# Firestore: `snapshots` の役割と更新タイミング
+# Firestore `snapshots` の更新方針
 
-このメモは、Firestore 前提の設計で `snapshots` の責務と更新条件を整理するためのものです。
+## 責務
 
----
+`snapshots` は監視対象ごとの前回取得結果を保存し、次回の差分比較基準になります。
 
-## 1. `snapshots` とは何か
+持たない責務:
 
-`snapshots` は、各監視対象の「前回取得した結果（比較基準）」を保存するコレクションです。
+- 通知成否
+- 再送状態
+- 通知先ごとの配送結果
 
-目的:
-- 次回実行時の差分検知
-- 「すでに見たデータ」の基準を保持する
+これらは `events` / `deliveries` が担当します。
 
-重要:
-- `snapshots` は「通知の成否」を管理する場所ではない
-- 通知の状態は `events` / `deliveries` で管理する
+## ドキュメント単位
 
----
+- `snapshots/bangumi_{person_id}`
+- `snapshots/anilist_{target_name}`
 
-## 2. `snapshots` の責務
+保存内容:
 
-`snapshots` が持つ責務:
-- 前回取得データの保存（baseline）
-- 差分検知の比較元
-- 最終チェック時刻の記録
+- `sourceType`, `sourceKey`, `targetLabel`
+- `lastSnapshot`
+- `lastSnapshotHash`
+- `lastCheckedAt`, `updatedAt`
 
-`snapshots` が持たない責務:
-- 通知送信の成功/失敗
-- 再送管理
-- notifier ごとの配送状態
+`lastSnapshotHash` は監査・将来最適化用に保存します。現在の差分判定では使用していません。
 
----
+## 現在の更新条件
 
-## 3. ドキュメント単位（Firestore）
+### 差分なし
 
-- 1監視対象 = 1ドキュメント
-- 例:
-  - `snapshots/bangumi_12345`
-  - `snapshots/anilist_山田太郎`
+非dry-runでは取得結果を保存し、チェック時刻を更新します。
 
----
+### 差分あり
 
-## 4. 推奨ドキュメント構造（例）
+1. `events` と `deliveries` を Firestore batch で永続化
+2. batch成功後に snapshot を更新
+3. deliveryを送信
 
-```json
-{
-  "sourceType": "anilist",
-  "sourceKey": "anilist_山田太郎",
-  "targetLabel": "山田太郎",
-  "lastSnapshot": [
-    {
-      "id": "123",
-      "title": "作品A",
-      "role": "原画",
-      "date": "2026-02"
-    },
-    {
-      "id": "456",
-      "title": "作品B",
-      "role": "作画監督",
-      "date": "2026-01"
-    }
-  ],
-  "lastSnapshotHash": "sha256:...",
-  "lastCheckedAt": "2026-02-23T00:00:00Z",
-  "updatedAt": "2026-02-23T00:00:01Z"
-}
-```
+通知が失敗しても snapshot は戻しません。失敗したdeliveryを次回runで再送します。
 
-フィールド説明:
-- `sourceType`: `bangumi` / `anilist`
-- `sourceKey`: 一意キー（例: `bangumi_12345`）
-- `targetLabel`: 人が読みやすい表示名（任意）
-- `lastSnapshot`: 前回取得した一覧（差分比較の本体）
-- `lastSnapshotHash`: ハッシュ（任意、最適化用）
-- `lastCheckedAt`: 最後に取得できた時刻
-- `updatedAt`: このドキュメントの更新時刻
+### 取得結果が空
 
----
+取得失敗と本当に0件の区別ができないため、snapshot を更新しません。
 
-## 5. 更新タイミングの選択肢
+### dry-run
 
-### A. 通知成功時のみ `snapshots` を更新する
+新規取得結果で snapshot を更新しません。ただし、run開始時の既存delivery再送は別処理として実行されます。
 
-意味:
-- 通知が送れていないデータは「見たことにしない」
+## 部分失敗例
 
-メリット:
-- 取りこぼし防止の思想として直感的
+`NOTIFIERS=console,email` で console が成功し email が失敗した場合:
 
-デメリット（Outbox/再送を入れる場合に大きい）:
-- 一部通知先失敗で `snapshots` が進まない
-- 次回実行で同じ差分を再検知しやすい
-- 同じ `events` が増えやすい（重複イベント）
+- eventを1件作成
+- console / email のdeliveryを作成
+- snapshotを更新
+- console deliveryは `sent`
+- email deliveryは `failed`
+- eventは `partially_sent`
+- runは `partial_failure` となりCLIは非0終了
+- 次回runは失敗したemail deliveryを再送
 
-向いているケース:
-- Outbox を使わない
-- 再送は「再検知」で十分
+## local backendとの違い
 
----
+local backend は Outbox を持ちません。そのため通知に失敗すると履歴JSONを更新せず、次回実行で同じ差分を再検知します。
 
-### B. `events + deliveries` の永続化成功時に `snapshots` を更新する（推奨）
+## 重複について
 
-意味:
-- 差分を「再送可能なイベントとして保存できた時点」で取りこぼしていないとみなす
-
-メリット:
-- `snapshots` は比較基準として進められる
-- 通知失敗は `deliveries` の再送で処理できる
-- 次回実行で同じ差分を再検知しにくい
-- `snapshots`（比較基準）と `deliveries`（配送状態）の責務分離が明確
-
-デメリット:
-- 通知未達でも `snapshots` は更新される
-- そのため `events/deliveries` の保存失敗は防ぐ必要がある
-
-向いているケース:
-- Outbox（`events` / `deliveries`）を使う
-- 持ち越し再送をしたい
-
----
-
-## 6. 具体例（Email成功・LINE失敗）
-
-前提:
-- 新着差分 3件検知
-- Email 成功
-- LINE 失敗
-
-### A. 通知成功時のみ `snapshots` 更新
-
-- `snapshots` は更新されない
-- 次回実行でも同じ3件が diff 扱いになりやすい
-- Email 側まで重複通知されやすい
-
-### B. `events + deliveries` 作成成功時に `snapshots` 更新
-
-- `events` 1件作成
-- `deliveries`（email, line）作成
-- `snapshots` 更新
-- 次回実行では同じ3件は通常 diff にならない
-- LINE 失敗分だけ `deliveries` から再送できる
-
----
-
-## 7. このプロジェクトでの推奨結論
-
-前提要件:
-- `at-least-once`
-- 重複通知はある程度許容
-- 持ち越し再送を Phase 1 から実施
-- Firestore で `events` / `deliveries` まで持つ
-
-この前提なら、`snapshots` は以下として扱うのが最も整合的です。
-
-- `snapshots` = 差分比較の基準
-- 更新条件 = `events + deliveries` の永続化成功時
-
-これにより:
-- 取りこぼし防止（`events/deliveries` で担保）
-- 重複イベント抑制（`snapshots` 更新）
-- 部分失敗の再送（`deliveries` で担保）
-
----
-
-## 8. 責務分担（要約）
-
-- `snapshots`: 差分比較の基準
-- `events`: 検知した差分（通知すべき内容）
-- `deliveries`: 通知先ごとの配送状態・再送状態
-- `runs`: 実行履歴サマリー
-
+Firestore eventには `dedupeKey` を保存しますが、現在は既存eventとの照合や一意性制約を実装していません。Outbox と snapshot 更新により通常の再検知は抑えますが、同時実行などでは重複event・通知が発生し得ます。
