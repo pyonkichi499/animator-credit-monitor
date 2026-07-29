@@ -51,7 +51,7 @@ jobs:
           NOTIFY_RETRY_MAX_RETRIES: ${{ vars.NOTIFY_RETRY_MAX_RETRIES || '2' }}
           NOTIFY_RETRY_INITIAL_DELAY_SECONDS: ${{ vars.NOTIFY_RETRY_INITIAL_DELAY_SECONDS || '60' }}
 
-          # Notification backend: console | email | line
+          # Notification backend: console | email
           NOTIFIER: ${{ vars.NOTIFIER || secrets.NOTIFIER }}
           NOTIFIERS: ${{ vars.NOTIFIERS || secrets.NOTIFIERS }}
 
@@ -66,10 +66,6 @@ jobs:
           EMAIL_SUBJECT_TEMPLATE: ${{ vars.EMAIL_SUBJECT_TEMPLATE || secrets.EMAIL_SUBJECT_TEMPLATE }}
           EMAIL_BODY_TEMPLATE: ${{ vars.EMAIL_BODY_TEMPLATE || secrets.EMAIL_BODY_TEMPLATE }}
 
-          # LINE notifier settings (when NOTIFIER=line)
-          LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
-          LINE_NOTIFY_API_URL: ${{ vars.LINE_NOTIFY_API_URL || secrets.LINE_NOTIFY_API_URL || 'https://notify-api.line.me/api/notify' }}
-          LINE_MESSAGE_TEMPLATE: ${{ vars.LINE_MESSAGE_TEMPLATE || secrets.LINE_MESSAGE_TEMPLATE || '{title}\n{message}' }}
           # DATA_DIR is only used when STATE_BACKEND=local
           DATA_DIR: data
         run: uv run --locked --no-dev animator-credit-monitor check
