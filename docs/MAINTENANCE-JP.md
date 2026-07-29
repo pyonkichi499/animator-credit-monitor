@@ -1,146 +1,135 @@
 # メンテナンスガイド
 
-## スクレイピングセレクタ
+## データソース
 
-### Bangumi (`scraper.py` - `BangumiScraper`)
+### Bangumi (`BangumiScraper`)
 
-スクレイパーは以下のCSSセレクタに依存している。BangumiのHTML構造が変更された場合、`src/animator_credit_monitor/scraper.py` の該当箇所を更新すること:
+`src/animator_credit_monitor/scraper.py` は次の HTML 構造に依存します。
 
-| セレクタ | 用途 | メソッド |
-|---|---|---|
-| `ul.browserFull` | 作品リストコンテナ | `_parse_works()` |
-| `li.item` | 個々の作品エントリ | `_parse_works()` |
-| `li[id]` | `id="item_{ID}"` 属性から作品ID取得 | `_parse_item()` |
-| `li > div.inner > h3 > a.l` | 中国語タイトル + リンク | `_parse_item()` |
-| `li > div.inner > h3 > small` | 日本語タイトル（存在しない場合あり） | `_parse_item()` |
-| `li > div.inner > p.info` | 日付/スタジオ情報 | `_parse_item()` |
-| `li > div.inner > span.badge_job` | 役割（例: 原画, 作画監督） | `_parse_item()` |
-| `div.page_inner > span.p_edge` | ページネーション情報 `( X / Y )` | `_get_next_page_url()` |
+| セレクタ | 用途 |
+|---|---|
+| `ul.browserFull` | 作品リスト |
+| `li.item` | 作品エントリ |
+| `li[id]` | `item_{ID}` から作品IDを取得 |
+| `div.inner > h3 > a.l` | 中国語タイトル |
+| `div.inner > h3 > small` | 日本語タイトル（なければ中国語へフォールバック） |
+| `div.inner > p.info` | 日付・スタジオ等の情報 |
+| `div.inner > span.badge_job` | 役職 |
+| `div.page_inner > span.p_edge` | `(current / total)` 形式のページ情報 |
 
-**タイトル解決:** `<h3>` 内の `<small class="grey">` から日本語タイトルを優先取得。`<small>` タグが存在しない場合は `<a class="l">` の中国語タイトルをフォールバックとして使用。両方保持: `title`（日本語/フォールバック）と `title_cn`（常に中国語）。
+ページ間隔は `request_interval=2.0` 秒がデフォルトです。最初のリクエスト前には待機しません。
 
-### 作画@wiki (`scraper.py` - `SakugaWikiScraper`)
+Bangumi のレスポンスに charset がない場合へ対応するため、`resp.apparent_encoding` を使用しています。
 
-| セレクタ | 用途 | メソッド |
-|---|---|---|
-| `ul.search-list` | 検索結果コンテナ | `_parse_search_results()` |
-| `li > a` | 結果リンク + タイトル | `_parse_search_results()` |
+### AniList (`AniListScraper`)
 
-**注意:** 作画@wiki は現在 Cloudflare にブロックされている（HTTP 403）。User-Agentヘッダーに関係なく全リクエストが403を返す。
+AniList GraphQL API の `Staff(search:)` と `staffMedia(sort: START_DATE_DESC, perPage: 25)` を使用します。
 
-**運用上、name ベース監視は現在 AniList を直接利用する。** 作画@wiki のスクレイピング実装は将来の復旧に備えて残しているが、403が継続している間は通常チェックフローから除外している。
+| APIフィールド | 出力 |
+|---|---|
+| `node.id` | `id` |
+| `node.title.native` | `title`（優先） |
+| `node.title.romaji` | `title_romaji` / native がない場合の `title` |
+| `staffRole` | `role` |
+| `node.startDate` | `date` (`YYYY-MM`) |
 
-### AniList (`scraper.py` - `AniListScraper`)
+代表的な作画役職は日本語へ変換し、未知の役職は原文を維持します。ページネーションは未実装のため最大25件です。
 
-AniList は GraphQL API（`https://graphql.anilist.co`）を使用しており、HTMLスクレイピングではない。保守すべきCSSセレクタはなし。
+## local 状態管理
 
-| APIフィールド | マッピング先 | 備考 |
-|---|---|---|
-| `Staff.staffMedia.edges[].node.title.native` | `title` | 日本語タイトル（優先） |
-| `Staff.staffMedia.edges[].node.title.romaji` | `title_romaji` | ローマ字タイトル |
-| `Staff.staffMedia.edges[].staffRole` | `role` | 例: "Key Animation (ep 1)" |
-| `Staff.staffMedia.edges[].node.id` | `id` | AniList メディアID |
-| `Staff.staffMedia.edges[].node.startDate` | `date` | 形式: "YYYY-MM" |
+履歴ファイル:
 
-**スクレイピングに対する優位性:** 認証不要、安定したAPI、セレクタ破損のリスクなし。1クエリあたり25件の制限あり（ページネーション未実装）。
-
-## リクエスト間隔（Wait処理）
-
-`BangumiScraper` には設定可能な `request_interval` パラメータ（デフォルト: 2.0秒）があり、ページ間にディレイを挿入する:
-
-```python
-scraper = BangumiScraper(request_interval=2.0)  # ページ間2秒
+```text
+data/bangumi_{person_id}_history.json
+data/anilist_{target_name}_history.json
 ```
 
-**目的:** 対象サーバーへの過剰な連続リクエストを防止。
+保存は一時ファイル作成後の `replace` で行います。
 
-**重要:**
-- 1.0秒未満に設定しないこと
-- ディレイはページ間のみ適用（最初のリクエストには適用されない）
-- 対象サイトがエラーを返し始めた場合は間隔を延長すること
-- AniList API は独自のレート制限（90リクエスト/分）がある — 本ツールでは問題にならない
+### リセット
 
-## 状態リセット
-
-### 全リセット
-
-全履歴ファイルを削除すると「初回実行」状態に戻る:
+全ソース:
 
 ```bash
 rm data/*.json
 ```
 
-次回実行時、全クレジットが新規として扱われ、全件の通知が送信される。
-
-### ソース別リセット
-
-履歴ファイルはソース + ID/名前で命名されている:
-
-```bash
-rm data/bangumi_50763_history.json     # Bangumi（人物ID 50763）のリセット
-rm data/anilist_椛沢祥平_history.json   # AniList（特定アニメーター）のリセット
-rm data/sakugawiki_椛沢祥平_history.json # 作画@wiki（特定アニメーター）のリセット
-```
-
-### 通知テスト
-
-通知の動作確認手順:
-
-1. テストしたいソースの履歴ファイルを削除
-2. check コマンドを実行
-3. 現在の全クレジットが新規として通知される
+Bangumi のみ:
 
 ```bash
 rm data/bangumi_*_history.json
-uv run animator-credit-monitor check --bangumi-only
 ```
 
-## エンコーディング
+AniList のみ:
 
-Bangumi は HTTPレスポンスヘッダーに `charset` を設定していないため、`requests` がデフォルトの `ISO-8859-1` を使用してしまう。スクレイパーでは `resp.encoding = resp.apparent_encoding` でオーバーライドし、UTF-8コンテンツ（日本語/中国語テキスト）を正しく処理している。
+```bash
+rm data/anilist_*_history.json
+```
 
-文字化けが発生した場合、`scraper.py` にこのエンコーディングオーバーライドが存在するか確認すること。
+次回取得時、削除したソースの全件が新規として扱われます。email を設定している場合は全件通知になるため注意してください。
+
+## Firestore 状態管理
+
+コレクション:
+
+- `snapshots`: 比較基準。TTLなし
+- `runs`: 実行監査。`expiresAt` で30日TTLを推奨
+- `events`: 検知イベント。30日TTLを推奨
+- `deliveries`: 配送状態と再送。30日TTLを推奨
+
+`FIRESTORE_COLLECTION_PREFIX=dev` の場合、`dev_snapshots` のような名前になります。
+
+状態を初期化する場合は、対象の snapshot を削除すると次回の全件が差分になります。`events` / `deliveries` を削除すると未配送通知を失う可能性があるため、内容を確認してから操作してください。
 
 ## 通知バックエンド
 
-実装済み・今後実装予定の通知先は以下。
+- `ConsoleNotifier`: 標準出力
+- `EmailNotifier`: SMTP、STARTTLS、任意の認証、テンプレート対応
+- `MultiNotifier`: 全通知先を実行し、失敗を `MultiNotifierError` に集約
 
-- **ConsoleNotifier**（実装済み）: 標準出力。ローカル開発向け。
-- **EmailNotifier**（実装済み）: `SMTP_*` 環境変数でSMTP送信。`EMAIL_SUBJECT_TEMPLATE` / `EMAIL_BODY_TEMPLATE` に対応。
-- **LineNotifier**（実装済み）: `LINE_NOTIFY_TOKEN` を使った LINE Notify 互換 API 送信。`LINE_MESSAGE_TEMPLATE` に対応。
-- **Discord/Slack webhook**（未実装）: チーム運用向けの次候補。
+現在選択できる設定値は `console` と `email` です。
 
-## 新しい通知バックエンドの追加
+### 新しい通知バックエンドを追加する場合
 
-1. `src/animator_credit_monitor/notifier.py` で `Notifier` を継承した新しいクラスを作成:
+1. `Notifier` を実装する
+2. `config.py` の許可値と必要設定を追加する
+3. `main.py::_build_delivery_targets()` に配線を追加する
+4. notifier / config / CLI / delivery のテストを追加する
+5. `.env.example`, workflow, README, Automation/Setup 文書を更新する
 
-```python
-class DiscordNotifier(Notifier):
-    def __init__(self, webhook_url: str) -> None:
-        self._webhook_url = webhook_url
+## Firestore 配送・再送
 
-    def notify(self, title: str, message: str) -> None:
-        # Discord webhook 通知を実装
-        ...
-```
+- 同一実行内: `max_retries + 1` 回試行
+- デフォルト: 初回 + 2回再試行、待機 60秒 → 120秒
+- run 開始時に `pending` / `failed` かつ `nextRetryAt <= now` の delivery を最大100件再送
+- event status は `sent` / `partially_sent` / `failed`
 
-2. `main.py` を更新し、設定に基づいて新しい notifier を使用（例: `.env` の `DISCORD_WEBHOOK_URL`）。
+現状、`maxAttempts=50` はドキュメントへ保存しますが、再送停止条件には使用していません。
 
-## コード品質コマンド
+## コード品質
 
 ```bash
-uv run pytest tests/ -v               # 全テスト実行
-uv run ruff check src/ tests/         # lint チェック
-uv run ruff check --fix src/ tests/   # lint 自動修正
-uv run mypy src/                      # 型チェック
+uv lock --check
+uv run ruff check src/ tests/
+uv run mypy src/
+uv run pytest tests/ -v
+uv build
 ```
 
-## 通知メッセージ形式
+## 通知メッセージ
 
-現在の通知ペイロード方針:
+- タイトル: `新しいクレジット (Bangumi|AniList)`
+- 先頭行: `検知件数: N`
+- 以降: `1. タイトル [役職] (info/date)`
+- email テンプレート変数: `{title}`, `{message}`
 
-- タイトル: ソース別（`新しいクレジット (Bangumi)` / `新しいクレジット (AniList)`）
-- 本文1行目: 検知件数（`検知件数: N`）
-- 本文2行目以降: 連番付きエントリ（役職/日付/付帯情報を付与）
+未知のテンプレート変数は `ValueError` になります。
 
-この標準化ペイロードを全 notifier に渡し、必要に応じて `{title}` / `{message}` テンプレートでチャネル別整形を行う。
+## 既知の実装上の制約
+
+- AniList は25件まで
+- Bangumi は HTML セレクタ変更の影響を受ける
+- Firestore の `dedupeKey` は一意性チェックに未使用
+- `lastSnapshotHash` は差分計算の高速化には未使用
+- `maxAttempts` は再送上限に未使用
+- GitHub Actions / Firestore の同時実行排他は未実装

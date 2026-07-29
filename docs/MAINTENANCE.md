@@ -1,146 +1,135 @@
 # Maintenance Guide
 
-## Scraping Selectors
+## Data Sources
 
-### Bangumi (`scraper.py` - `BangumiScraper`)
+### Bangumi (`BangumiScraper`)
 
-The scraper depends on the following CSS selectors. If Bangumi changes their HTML structure, update these in `src/animator_credit_monitor/scraper.py`:
+`src/animator_credit_monitor/scraper.py` depends on the following HTML structure.
 
-| Selector | Purpose | Method |
-|---|---|---|
-| `ul.browserFull` | Works list container | `_parse_works()` |
-| `li.item` | Individual work entry | `_parse_works()` |
-| `li[id]` | Work ID from `id="item_{ID}"` attribute | `_parse_item()` |
-| `li > div.inner > h3 > a.l` | Chinese title + link | `_parse_item()` |
-| `li > div.inner > h3 > small` | Japanese title (may not exist) | `_parse_item()` |
-| `li > div.inner > p.info` | Date/studio info | `_parse_item()` |
-| `li > div.inner > span.badge_job` | Role (e.g., 原画, 作画監督) | `_parse_item()` |
-| `div.page_inner > span.p_edge` | Pagination info `( X / Y )` | `_get_next_page_url()` |
+| Selector | Purpose |
+|---|---|
+| `ul.browserFull` | Work list |
+| `li.item` | Work entry |
+| `li[id]` | Extract the work ID from `item_{ID}` |
+| `div.inner > h3 > a.l` | Chinese title |
+| `div.inner > h3 > small` | Japanese title; falls back to the Chinese title |
+| `div.inner > p.info` | Date/studio information |
+| `div.inner > span.badge_job` | Staff role |
+| `div.page_inner > span.p_edge` | `(current / total)` pagination text |
 
-**Title resolution:** Japanese title is preferred from `<small class="grey">` inside `<h3>`. If the `<small>` tag is absent, the Chinese title from `<a class="l">` is used as fallback. Both are stored: `title` (Japanese/fallback) and `title_cn` (always Chinese).
+The default interval between pages is `request_interval=2.0` seconds. There is no delay before the first request.
 
-### Sakuga@wiki (`scraper.py` - `SakugaWikiScraper`)
+The scraper uses `resp.apparent_encoding` because Bangumi may omit a response charset.
 
-| Selector | Purpose | Method |
-|---|---|---|
-| `ul.search-list` | Search results container | `_parse_search_results()` |
-| `li > a` | Result link + title | `_parse_search_results()` |
+### AniList (`AniListScraper`)
 
-**Note:** Sakuga@wiki is currently blocked by Cloudflare (HTTP 403). All requests return 403 regardless of User-Agent headers.
+The scraper uses AniList GraphQL `Staff(search:)` and `staffMedia(sort: START_DATE_DESC, perPage: 25)`.
 
-**Operationally, name-based monitoring now uses AniList directly.** Sakuga@wiki scraping code remains for reference/possible future recovery, but it is excluded from the normal check flow while 403 persists.
+| API field | Output |
+|---|---|
+| `node.id` | `id` |
+| `node.title.native` | preferred `title` |
+| `node.title.romaji` | `title_romaji`, and fallback `title` |
+| `staffRole` | `role` |
+| `node.startDate` | `date` (`YYYY-MM`) |
 
-### AniList (`scraper.py` - `AniListScraper`)
+Common animation roles are translated to Japanese; unknown roles are preserved. Pagination is not implemented, so at most 25 entries are returned.
 
-AniList uses a GraphQL API (`https://graphql.anilist.co`), not HTML scraping. No CSS selectors to maintain.
+## Local State
 
-| API Field | Mapped to | Notes |
-|---|---|---|
-| `Staff.staffMedia.edges[].node.title.native` | `title` | Japanese title (preferred) |
-| `Staff.staffMedia.edges[].node.title.romaji` | `title_romaji` | Romanized title |
-| `Staff.staffMedia.edges[].staffRole` | `role` | e.g., "Key Animation (ep 1)" |
-| `Staff.staffMedia.edges[].node.id` | `id` | AniList media ID |
-| `Staff.staffMedia.edges[].node.startDate` | `date` | Format: "YYYY-MM" |
+History files:
 
-**Advantages over scraping:** No auth required, stable API, no risk of selector breakage. Limited to 25 results per query (pagination not yet implemented).
-
-## Request Interval (Wait Processing)
-
-The `BangumiScraper` has a configurable `request_interval` parameter (default: 2.0 seconds) that adds a delay between paginated requests:
-
-```python
-scraper = BangumiScraper(request_interval=2.0)  # 2 seconds between pages
+```text
+data/bangumi_{person_id}_history.json
+data/anilist_{target_name}_history.json
 ```
 
-**Purpose:** Prevent overloading the target server with rapid requests.
+Writes use a temporary file followed by `replace`.
 
-**Important:**
-- Do not set this below 1.0 second
-- The interval only applies between pages (not on the first request)
-- If the target site starts returning errors, consider increasing the interval
-- AniList API has its own rate limiting (90 requests/minute) — not an issue for this tool
+### Reset
 
-## State Reset
-
-### Full Reset
-
-Delete all history files to force a "first run" state:
+All sources:
 
 ```bash
 rm data/*.json
 ```
 
-The next execution will treat all credits as new and send notifications for everything.
-
-### Per-Source Reset
-
-History files are named with source + ID/name:
-
-```bash
-rm data/bangumi_50763_history.json     # Reset Bangumi for person 50763
-rm data/anilist_椛沢祥平_history.json   # Reset AniList for specific animator
-rm data/sakugawiki_椛沢祥平_history.json # Reset Sakuga@wiki for specific animator
-```
-
-### Notification Test
-
-To test that notifications work:
-
-1. Delete the history file for the source you want to test
-2. Run the check command
-3. All current credits will be reported as new
+Bangumi only:
 
 ```bash
 rm data/bangumi_*_history.json
-uv run animator-credit-monitor check --bangumi-only
 ```
 
-## Encoding
+AniList only:
 
-Bangumi does not set `charset` in its HTTP response headers, causing `requests` to default to `ISO-8859-1`. The scraper overrides this with `resp.encoding = resp.apparent_encoding` to correctly handle UTF-8 content (Japanese/Chinese text).
+```bash
+rm data/anilist_*_history.json
+```
 
-If garbled text appears, check that this encoding override is still present in `scraper.py`.
+The next fetch treats every item from a reset source as new. With email enabled, this may send a full-list notification.
+
+## Firestore State
+
+Collections:
+
+- `snapshots`: comparison baseline, no TTL
+- `runs`: execution audit, recommended 30-day TTL on `expiresAt`
+- `events`: detected events, recommended 30-day TTL
+- `deliveries`: delivery and redelivery state, recommended 30-day TTL
+
+With `FIRESTORE_COLLECTION_PREFIX=dev`, collection names become `dev_snapshots`, and so on.
+
+Deleting a target snapshot makes every item new on the next run. Deleting events or deliveries may lose pending notifications; inspect them before removal.
 
 ## Notification Backends
 
-Implemented and planned backends:
+- `ConsoleNotifier`: stdout
+- `EmailNotifier`: SMTP, STARTTLS, optional authentication, and templates
+- `MultiNotifier`: attempts every notifier and aggregates failures in `MultiNotifierError`
 
-- **ConsoleNotifier** (implemented): stdout output, useful for local/dev runs.
-- **EmailNotifier** (implemented): SMTP delivery via `SMTP_*` environment variables. Supports `EMAIL_SUBJECT_TEMPLATE` and `EMAIL_BODY_TEMPLATE`.
-- **LineNotifier** (implemented): LINE Notify compatible API via `LINE_NOTIFY_TOKEN`. Supports `LINE_MESSAGE_TEMPLATE`.
-- **Discord/Slack webhook** (planned): recommended next step for team operations.
+The currently valid configuration values are `console` and `email`.
 
-## Adding a New Notification Backend
+### Adding a Notification Backend
 
-1. Create a new class that inherits from `Notifier` in `src/animator_credit_monitor/notifier.py`:
+1. Implement `Notifier`.
+2. Add the type and required settings to `config.py`.
+3. Wire it in `main.py::_build_delivery_targets()`.
+4. Add notifier, config, CLI, and delivery tests.
+5. Update `.env.example`, the workflow, README, and Automation/Setup documentation.
 
-```python
-class DiscordNotifier(Notifier):
-    def __init__(self, webhook_url: str) -> None:
-        self._webhook_url = webhook_url
+## Firestore Delivery and Redelivery
 
-    def notify(self, title: str, message: str) -> None:
-        # Implement Discord webhook notification
-        ...
-```
+- In-run attempts: `max_retries + 1`
+- Default: initial attempt plus two retries, waiting 60 then 120 seconds
+- At run start, retry up to 100 `pending` / `failed` deliveries with `nextRetryAt <= now`
+- Event status: `sent` / `partially_sent` / `failed`
 
-2. Update `main.py` to use the new notifier based on configuration (e.g., `DISCORD_WEBHOOK_URL` in `.env`).
+`maxAttempts=50` is currently stored but is not enforced as a redelivery stop condition.
 
-## Code Quality Commands
+## Code Quality
 
 ```bash
-uv run pytest tests/ -v               # Run all tests
-uv run ruff check src/ tests/         # Lint check
-uv run ruff check --fix src/ tests/   # Auto-fix lint issues
-uv run mypy src/                      # Type check
+uv lock --check
+uv run ruff check src/ tests/
+uv run mypy src/
+uv run pytest tests/ -v
+uv build
 ```
 
-## Notification Message Format
+## Notification Message
 
-Current payload policy:
+- Title: `新しいクレジット (Bangumi|AniList)`
+- First line: `検知件数: N`
+- Following lines: `1. title [role] (info/date)`
+- Email template variables: `{title}`, `{message}`
 
-- Title: source-specific (`新しいクレジット (Bangumi)` / `新しいクレジット (AniList)`)
-- Body first line: detected count (`検知件数: N`)
-- Body following lines: numbered entries with role/date/info metadata
+An unknown template variable raises `ValueError`.
 
-This standardized payload is passed to all notifier backends. Each backend can further wrap it via template variables `{title}` and `{message}`.
+## Known Implementation Limitations
+
+- AniList is limited to 25 entries.
+- Bangumi is sensitive to HTML selector changes.
+- Firestore `dedupeKey` is not used for uniqueness enforcement.
+- `lastSnapshotHash` is not used to accelerate diff calculation.
+- `maxAttempts` is not enforced.
+- Concurrent GitHub Actions / Firestore runs are not locked.

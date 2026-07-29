@@ -1,63 +1,62 @@
 # Animator Credit Monitor
 
-特定アニメーターの作画クレジットが Web 上のデータベースに新たに掲載されたことを自動検知し、通知するツール。
+指定したアニメーターの作画クレジットを定期取得し、前回の取得結果との差分を通知する Python CLI です。
 
-## Data Sources
+## 現在の実装
 
-| Source | URL | Description |
+### データソース
+
+| Source | 接続先 | 監視内容 |
 |---|---|---|
-| Bangumi | `bangumi.tv/person/{ID}` | 中国のアニメデータベース。作品リスト (Filmography) の差分を監視 |
-| AniList | `graphql.anilist.co` | スタッフクレジットを API 経由で取得して差分監視 |
-| 作画@wiki | `w.atwiki.jp/sakuga/` | 日本の作画情報 wiki。※現在は Cloudflare 403 により実運用では利用不可 |
+| Bangumi | `https://bangumi.tv/person/{ID}/works` | 人物ページの作品・役職一覧を HTML から取得 |
+| AniList | `https://graphql.anilist.co` | スタッフ名で検索し、最新25件のメディアクレジットを GraphQL API から取得 |
 
-## Setup
+作画@wiki のスクレイパーは削除済みです。現在の name ベース監視は AniList を直接使用します。
 
-### Prerequisites
+### 通知先
 
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/)
+- `console`: 標準出力（デフォルト）
+- `email`: SMTP
+- `NOTIFIERS=console,email` による複数通知先への配信
 
-### Installation
+LINE Notify はサービス終了に伴い実装から削除済みです。
+
+### 状態バックエンド
+
+- `local`（デフォルト）: `data/*_history.json` に前回取得結果を保存
+- `firestore`: `snapshots` / `runs` / `events` / `deliveries` を使用する Outbox 構成
+
+Firestore バックエンドでは、通知失敗を `deliveries` に残し、次回実行の開始時に再送します。
+
+## 必要環境
+
+- Python 3.11 以上（`.python-version` は Python 3.13.2）
+- [uv](https://docs.astral.sh/uv/) 0.11.24
+
+## セットアップ
 
 ```bash
 git clone https://github.com/pyonkichi499/animator-credit-monitor.git
 cd animator-credit-monitor
 uv sync --locked
-```
-
-### Configuration
-
-Copy the example env file and edit it:
-
-```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+最小構成:
 
 ```env
-# Bangumi person ID (find it from the URL: bangumi.tv/person/{THIS_NUMBER})
+# 少なくとも一方を設定
 TARGET_BANGUMI_ID=12345
-
-# State backend: local | firestore
-STATE_BACKEND=local
-
-# Animator name for AniList search
 TARGET_NAME=アニメーター名
 
-# Notification backend: console | email | line
+STATE_BACKEND=local
 NOTIFIER=console
+```
 
-# Retry (in-run, exponential backoff)
-NOTIFY_RETRY_MAX_RETRIES=2
-NOTIFY_RETRY_INITIAL_DELAY_SECONDS=60
+メール通知を使う場合:
 
-# Firestore backend settings (required when STATE_BACKEND=firestore)
-GCP_PROJECT_ID=your-gcp-project-id
-FIRESTORE_DATABASE=(default)
-FIRESTORE_COLLECTION_PREFIX=
-
-# Email notifier settings (required when NOTIFIER=email)
+```env
+NOTIFIER=email
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_FROM=from@example.com
@@ -65,214 +64,138 @@ SMTP_TO=to@example.com
 SMTP_USER=
 SMTP_PASS=
 SMTP_USE_TLS=true
-# Optional templates (variables: {title}, {message})
 EMAIL_SUBJECT_TEMPLATE=[ACM] {title}
 EMAIL_BODY_TEMPLATE={title}\n\n{message}
-
-# LINE notifier settings (required when NOTIFIER=line)
-LINE_NOTIFY_TOKEN=your_token
-# Optional
-LINE_NOTIFY_API_URL=https://notify-api.line.me/api/notify
-# Optional template (variables: {title}, {message})
-LINE_MESSAGE_TEMPLATE={title}\n{message}
 ```
 
-## Usage
+`SMTP_USER` と `SMTP_PASS` は両方が設定されている場合だけ SMTP 認証に使用されます。
 
-### Check for new credits
+## 使用方法
 
 ```bash
+# 設定された全ソースを確認
 uv run animator-credit-monitor check
-```
 
-### Options
-
-```bash
-# Dry run (check without saving state)
+# 状態更新なしで確認
 uv run animator-credit-monitor check --dry-run
 
-# Check only Bangumi
+# Bangumi のみ
 uv run animator-credit-monitor check --bangumi-only
 
-# Check only AniList/name-based source
+# AniList のみ
 uv run animator-credit-monitor check --anilist-only
-```
 
-> 現状メモ: name ベースの監視は AniList を直接利用します。
-> 作画@wiki は現在 403 のため、運用対象から外しています。
-
-### Show help
-
-```bash
+# ヘルプ
 uv run animator-credit-monitor --help
 uv run animator-credit-monitor check --help
 ```
 
-## Notifications
+`--bangumi-only` と `--anilist-only` は同時指定できません。
 
-- `NOTIFIER=console` (default): print to stdout
-- `NOTIFIER=email`: send via SMTP (`SMTP_*` required)
-- `NOTIFIER=line`: send via LINE Notify compatible API (`LINE_NOTIFY_TOKEN` required)
-- `NOTIFIERS=email,line`: fan-out to both email and LINE in one run
-- Message templates can use `{title}` and `{message}` placeholders
-- Example templates are provided under `templates/`:
-  - `templates/email_subject.template.txt`
-  - `templates/email_body.template.txt`
-  - `templates/line_message.template.txt`
+### `--dry-run` の挙動
 
-### Notification message format
+- 通知は実行されます。
+- local: 履歴 JSON を更新しません。
+- Firestore: 新規差分については `snapshots` / `events` / `deliveries` を更新せず、通知を直接送信します。
+- Firestore の実行監査用 `runs` レコードは作成されます。
+- Firestore の run 開始時に行う既存 delivery の再送は実行され、既存の delivery / event 状態を更新する場合があります。
 
-- Title: `新しいクレジット (Bangumi|AniList)`
-- Body:
-  - First line: `検知件数: N`
-  - Following lines: numbered credit entries (`1. ...`, `2. ...`)
-- Templates can use `{title}` and `{message}` to wrap/reformat the standardized payload.
+## 環境変数
 
-## GitHub Actions (Scheduled Run)
+| 変数 | デフォルト | 説明 |
+|---|---:|---|
+| `TARGET_BANGUMI_ID` | 空 | Bangumi の人物ID |
+| `TARGET_NAME` | 空 | AniList のスタッフ検索名 |
+| `STATE_BACKEND` | `local` | `local` または `firestore` |
+| `DATA_DIR` | `data` | local 履歴の保存先 |
+| `NOTIFIER` | `console` | `console` または `email` |
+| `NOTIFIERS` | 空 | カンマ区切りの通知先。設定時は `NOTIFIER` より優先 |
+| `NOTIFY_RETRY_MAX_RETRIES` | `2` | 初回送信後の同一実行内リトライ回数 |
+| `NOTIFY_RETRY_INITIAL_DELAY_SECONDS` | `60` | 初回リトライまでの秒数 |
+| `GCP_PROJECT_ID` | 空 | Firestore 使用時は必須 |
+| `FIRESTORE_DATABASE` | `(default)` | Firestore database ID |
+| `FIRESTORE_COLLECTION_PREFIX` | 空 | コレクション名の接頭辞 |
+| `SMTP_HOST` | 空 | email 使用時は必須 |
+| `SMTP_PORT` | `587` | SMTP ポート。空文字は無効 |
+| `SMTP_FROM` | 空 | email 使用時は必須 |
+| `SMTP_TO` | 空 | email 使用時は必須 |
+| `SMTP_USER` | 空 | SMTP 認証ユーザー |
+| `SMTP_PASS` | 空 | SMTP 認証パスワード |
+| `SMTP_USE_TLS` | `true` | STARTTLS の有効化 |
+| `EMAIL_SUBJECT_TEMPLATE` | `{title}` | 件名テンプレート |
+| `EMAIL_BODY_TEMPLATE` | `{message}` | 本文テンプレート |
 
-A workflow is provided at `.github/workflows/daily-credit-check.yml`.
+少なくとも `TARGET_BANGUMI_ID` または `TARGET_NAME` の一方が必要です。`NOTIFIERS` に同じ通知先を重複指定することはできません。
 
-1. Open **Settings → Secrets and variables → Actions** in your GitHub repository.
-2. Configure **GitHub OIDC / Workload Identity Federation** on GCP (recommended, no service account key JSON in GitHub).
-   - Create a GCP service account for Firestore access
-   - Create Workload Identity Pool + Provider for GitHub OIDC
-   - Allow your GitHub repo/branch to impersonate the service account
-   - Add these as **GitHub Variables** (non-secret):
-     - `GCP_WORKLOAD_IDENTITY_PROVIDER`
-     - `GCP_SERVICE_ACCOUNT`
-     - `GCP_PROJECT_ID`
-3. Add monitoring/notifier settings as **GitHub Variables** (non-secret):
-   - `TARGET_BANGUMI_ID` (optional, for Bangumi monitoring)
-   - `NOTIFIER` (`email` or `line`)
-   - or `NOTIFIERS` (`email,line`) to send to both
-   - `STATE_BACKEND` (`firestore` recommended for GitHub Actions)
-   - `FIRESTORE_DATABASE` (`(default)` if omitted)
-   - `FIRESTORE_COLLECTION_PREFIX` (optional)
-   - `NOTIFY_RETRY_MAX_RETRIES` (default `2`)
-   - `NOTIFY_RETRY_INITIAL_DELAY_SECONDS` (default `60`)
-   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_TLS` (if using email)
-4. Add credentials as **GitHub Secrets** (secret):
-   - `TARGET_NAME` (if you prefer to keep it private)
-   - Email: `SMTP_FROM`, `SMTP_TO`, `SMTP_USER`, `SMTP_PASS`
-   - LINE: `LINE_NOTIFY_TOKEN` (optional: `LINE_NOTIFY_API_URL`)
-5. Run from **Actions → Daily Credit Check → Run workflow** for first validation.
+email のテンプレート例は `templates/email_subject.template.txt` と `templates/email_body.template.txt` にあります。
 
-### Firestore Collections (when `STATE_BACKEND=firestore`)
+## 差分検知と通知
 
-- `snapshots`: diff comparison baseline (no TTL)
-- `runs`: execution summaries (`30d` TTL recommended)
-- `events`: detected credit events / outbox (`30d` TTL recommended)
-- `deliveries`: notifier delivery states for retry/redelivery (`30d` TTL recommended)
+- 初回実行は、取得できた全クレジットを新規として扱います。
+- 空の取得結果は保存せず、既存の比較基準を維持します。
+- 通知タイトルは `新しいクレジット (Bangumi)` または `新しいクレジット (AniList)` です。
+- 本文は `検知件数: N` と連番付きクレジットで構成されます。
+- AniList の代表的な作画役職は日本語へ変換され、未知の役職は原文のまま保持されます。
 
-### Secrets templates (GitHub Actions)
+local バックエンドでは通知に失敗した場合、履歴を更新せず非0で終了します。Firestore バックエンドでは Outbox に保存後に snapshot を進め、失敗した delivery を次回実行へ持ち越します。
 
-#### Email notifier (`NOTIFIER=email`)
+## GitHub Actions
 
-```text
-NOTIFIER=email
-TARGET_NAME=監視対象名
-TARGET_BANGUMI_ID=12345
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_FROM=from@example.com
-SMTP_TO=to@example.com
-SMTP_USER=your_user
-SMTP_PASS=your_password
-SMTP_USE_TLS=true
-EMAIL_SUBJECT_TEMPLATE=[ACM] {title}
-EMAIL_BODY_TEMPLATE={title}\n\n{message}
-```
+- `.github/workflows/ci.yml`: `main` / `develop` への push と pull request で Ruff、mypy、pytest を実行
+- `.github/workflows/daily-credit-check.yml`: 毎日 09:00 JST と手動実行で監視を実行
 
-#### Email notifier (SendGrid preset)
+定期実行は `STATE_BACKEND=firestore` をデフォルトにしています。現在の workflow では次を **GitHub Variables** として設定してください。
 
-```text
-NOTIFIER=email
-TARGET_NAME=監視対象名
-TARGET_BANGUMI_ID=12345
-SMTP_HOST=smtp.sendgrid.net
-SMTP_PORT=587
-SMTP_USE_TLS=true
-SMTP_FROM=verified-sender@example.com
-SMTP_TO=destination@example.com
-SMTP_USER=apikey
-SMTP_PASS=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-EMAIL_SUBJECT_TEMPLATE=[ACM] {title}
-EMAIL_BODY_TEMPLATE={title}\n\n{message}
-```
+- `GCP_PROJECT_ID`
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`
+- `GCP_SERVICE_ACCOUNT`
+- `TARGET_BANGUMI_ID` または `TARGET_NAME`
+- `NOTIFIER=console` または `NOTIFIER=email`
+- `SMTP_PORT=587`
 
-> `SMTP_USER=apikey` + `SMTP_PASS=<SendGrid API key>` がSendGridのSMTP認証セットです。
-> 同じ内容は `templates/sendgrid_github_secrets.template.txt` にもあります。
+email 使用時の追加設定:
 
-#### Email notifier (Gmail SMTP preset)
+**Variables**
 
-```text
-STATE_BACKEND=firestore
-GCP_PROJECT_ID=your-gcp-project-id
-TARGET_NAME=監視対象名
-TARGET_BANGUMI_ID=12345
+- `SMTP_HOST`
+- `SMTP_USE_TLS`
+- 任意: `EMAIL_SUBJECT_TEMPLATE`, `EMAIL_BODY_TEMPLATE`
 
-NOTIFIER=email
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USE_TLS=true
-SMTP_FROM=your-gmail-address@gmail.com
-SMTP_TO=destination@example.com
-SMTP_USER=your-gmail-address@gmail.com
-SMTP_PASS=your-16-char-app-password
-EMAIL_SUBJECT_TEMPLATE=[ACM] {title}
-EMAIL_BODY_TEMPLATE={title}\n\n{message}
-```
+**Secrets**
 
-> Gmail SMTP は通常のGoogleアカウントパスワードではなく、App Password を使ってください。
-> WIF を使う GCP セットアップ手順は `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md` を参照。
+- `SMTP_FROM`
+- `SMTP_TO`
+- `SMTP_USER`
+- `SMTP_PASS`
 
-#### LINE notifier (`NOTIFIER=line`)
+`TARGET_NAME` は Variable または Secret のどちらでも設定できます。GCP/WIF の3項目は workflow が `vars.*` を参照するため Variables に登録します。
 
-```text
-NOTIFIER=line
-TARGET_NAME=監視対象名
-TARGET_BANGUMI_ID=12345
-LINE_NOTIFY_TOKEN=your_token
-LINE_NOTIFY_API_URL=https://notify-api.line.me/api/notify
-LINE_MESSAGE_TEMPLATE={title}\n{message}
-```
+詳細:
 
-#### Email + LINE notifier (both)
+- [アーキテクチャ](docs/ARCHITECTURE-JP.md)
+- [自動実行ガイド](docs/AUTOMATION-JP.md)
+- [セットアップチェックリスト](docs/SETUP_CHECKLIST_JP.md)
+- [GCP WIF セットアップ](docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md)
+- [Firestore Runtime Design](docs/FIRESTORE_RUNTIME_DESIGN.md)
 
-```text
-NOTIFIERS=email,line
-TARGET_NAME=監視対象名
-TARGET_BANGUMI_ID=12345
-
-# Email side
-SMTP_HOST=smtp.sendgrid.net
-SMTP_PORT=587
-SMTP_FROM=verified-sender@example.com
-SMTP_TO=destination@example.com
-SMTP_USER=apikey
-SMTP_PASS=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-SMTP_USE_TLS=true
-
-# LINE side
-LINE_NOTIFY_TOKEN=your_token
-LINE_NOTIFY_API_URL=https://notify-api.line.me/api/notify
-```
-
-## Testing
+## 開発
 
 ```bash
+uv run ruff check src/ tests/
+uv run mypy src/
 uv run pytest tests/ -v
+uv build
 ```
 
-## State Management
+uv 移行差分用のコミット補助スクリプトについては [`scripts/README.md`](scripts/README.md) を参照してください。通常実行はプレビューのみで、`--apply` を付けた場合だけコミットします。
 
-- Credit history is stored in `data/*.json` files
-- Delete these files to reset state (next run will treat all credits as new)
-- See [docs/MAINTENANCE.md](docs/MAINTENANCE.md) for details
+## 既知の制約
 
-## Automation
-
-See [docs/AUTOMATION.md](docs/AUTOMATION.md) for cron/scheduled task setup.
+- AniList は `perPage: 25` 固定で、ページネーションは未実装です。
+- Bangumi は HTML セレクタに依存するため、サイト構造変更時に修正が必要です。
+- Firestore の `dedupeKey` は保存されますが、現状は一意性制約として使用していません。
+- `deliveries.maxAttempts` は保存されますが、現状の再送処理では上限判定に使用していません。
+- GitHub Actions の同時実行に対する排他制御は未実装です。
 
 ## License
 

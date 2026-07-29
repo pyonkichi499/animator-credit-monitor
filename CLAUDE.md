@@ -1,116 +1,122 @@
 # CLAUDE.md - Animator Credit Monitor
 
 ## Project Overview
-Automated system to detect new animation credits for specified animators on web databases (Bangumi, AniList, Sakuga@wiki) and notify users of changes.
+
+Python CLI that fetches animator credits from Bangumi and AniList, compares them with the previous state, and sends new-credit notifications to the console or email.
+
+The current sources are **Bangumi / AniList** and the current notification backends are **console / email**. The Sakuga@wiki scraper and LINE Notify integration have been removed.
 
 ## Tech Stack
-- **Language:** Python 3.13 (requires >= 3.11)
-- **Project Management:** uv
-- **CLI:** Click
-- **Libraries:** python-dotenv, requests, beautifulsoup4, google-cloud-firestore
-- **Testing:** pytest, responses (HTTP mocking)
-- **Linting:** ruff (E/F/W/I/UP/B/SIM rules)
-- **Type Checking:** mypy (disallow_untyped_defs)
+
+- Python 3.11+ (`.python-version`: 3.13.2)
+- uv 0.11.24 / `uv.lock`
+- Click / requests / BeautifulSoup / google-cloud-firestore
+- pytest / responses / Ruff / mypy
 
 ## Directory Structure
-```
-src/animator_credit_monitor/   # Main source code
-├── main.py                    # Click CLI + orchestration (routes local/firestore)
-├── config.py                  # AppConfig dataclass + env parsing + validation
-├── models.py                  # SourcePlan, SourceRunResult, RunReport value objects
-├── ports.py                   # HistoryRepository / NotificationGateway protocols
-├── usecase.py                 # MonitorUseCase (local backend)
-├── firestore_usecase.py       # FirestoreOutboxMonitorUseCase (Firestore backend)
-├── delivery.py                # DeliveryDispatcher + RetryPolicy + DeliveryTarget
-├── firestore_store.py         # Firestore repositories (snapshots/runs/outbox)
-├── formatters.py              # Diff → notification message formatters
-├── scraper.py                 # Bangumi + AniList + Sakuga@wiki scrapers
-├── notifier.py                # Notification ABC + Console/Email/Line impls
-└── history.py                 # Local JSON diff detection + state persistence
-tests/                         # Test files (pytest)
-├── fixtures/                  # HTML fixtures for scraper tests
-data/                          # Runtime state (git-ignored)
-docs/                          # Operational & design documentation
-templates/                     # Configuration templates
-devlog/                        # Development diary
+
+```text
+src/animator_credit_monitor/
+├── main.py                # Click CLI, dependency wiring, backend/source selection
+├── config.py              # Environment parsing and aggregated validation
+├── models.py              # SourcePlan / SourceRunResult / RunReport
+├── ports.py               # HistoryRepository / NotificationGateway
+├── usecase.py             # Local-backend use case
+├── firestore_usecase.py   # Firestore + Outbox use case
+├── history.py             # JSON history persistence
+├── firestore_store.py     # snapshots / runs / events / deliveries
+├── delivery.py            # Notification targets and exponential backoff
+├── scraper.py             # BangumiScraper / AniListScraper
+├── notifier.py            # ConsoleNotifier / EmailNotifier / MultiNotifier
+└── formatters.py          # Source-specific notification bodies
+tests/                     # Unit tests and fake-git commit-script tests
+docs/                      # Operations, Firestore, and GCP documentation
+templates/                 # Email and SMTP configuration examples
+scripts/commit.sh          # Review-first helper for the uv migration commits
 ```
 
 ## Key Commands
+
 ```bash
-uv sync --locked                            # Install dependencies
-uv run pytest tests/ -v                     # Run all tests
-uv run ruff check src/ tests/               # Lint check
-uv run mypy src/                            # Type check
-uv run animator-credit-monitor check        # Run credit check
-uv run animator-credit-monitor --help       # Show CLI help
+uv sync --locked
+uv run animator-credit-monitor check
+uv run animator-credit-monitor check --dry-run
+uv run ruff check src/ tests/
+uv run mypy src/
+uv run pytest tests/ -v
+uv build
 ```
 
-## CLI Options
-```bash
-animator-credit-monitor check               # Check all sources
-animator-credit-monitor check --bangumi-only # Bangumi only
-animator-credit-monitor check --anilist-only # Name-based source only (AniList direct)
-animator-credit-monitor check --dry-run      # Check without saving state
-```
+## Current Architecture
 
-## Architecture
+### Sources
 
-### Clean Architecture Layers
-- **Ports (protocols):** `HistoryRepository`, `NotificationGateway` — dependency injection interfaces.
-- **Models:** `SourcePlan`, `SourceRunResult`, `RunReport` — frozen dataclasses for immutable value objects.
-- **Use Cases:** `MonitorUseCase` (local) and `FirestoreOutboxMonitorUseCase` (Firestore) — pure business logic.
-- **Config:** `AppConfig` dataclass with `load_app_config_from_env()` — validates all env vars upfront.
-- **Delivery:** `DeliveryDispatcher` with `RetryPolicy` — exponential backoff retry for multi-target fanout.
+- `BangumiScraper`: paginates HTML and extracts work ID, Japanese/Chinese title, role, and info text.
+- `AniListScraper`: uses GraphQL `Staff(search:)`. `staffMedia` is limited to the latest 25 entries; pagination is not implemented.
 
-### Dual Backend
-- **`STATE_BACKEND=local`** (default): Uses `HistoryManager` (JSON files in `data/`).
-- **`STATE_BACKEND=firestore`**: Uses Firestore collections (`snapshots`, `runs`, `events`, `deliveries`) with Outbox pattern for at-least-once delivery.
+### Local backend
 
-### Existing Components
-- **Notifier:** Abstract base class (`Notifier`) with `ConsoleNotifier`, `EmailNotifier`, `LineNotifier`, `MultiNotifier`.
-- **Scraper:** `BangumiScraper`, `AniListScraper`, `SakugaWikiScraper` (403 blocked).
-- **History:** `HistoryManager` — JSON-based state in `data/`, source ID in filename.
-- **Main:** Click CLI routes to local or Firestore backend based on config.
+- `HistoryManager` atomically replaces `data/{source_key}_history.json`.
+- The first successful fetch treats every item as new.
+- A notification failure prevents the history from advancing.
+- `--dry-run` still sends notifications but does not update history.
 
-## Environment Variables (.env)
-- `TARGET_BANGUMI_ID` - Bangumi person ID to monitor
-- `TARGET_NAME` - Animator name for name-based monitoring (currently effectively AniList)
-- `STATE_BACKEND` - `local` (default) or `firestore`
-- `GCP_PROJECT_ID` - Required when `STATE_BACKEND=firestore`
-- `FIRESTORE_DATABASE` - Firestore database (default: `(default)`)
-- `FIRESTORE_COLLECTION_PREFIX` - Optional prefix for Firestore collections
-- `NOTIFIER` / `NOTIFIERS` - Notification channel(s): `console`, `email`, `line`
-- `NOTIFY_RETRY_MAX_RETRIES` - Retry count for delivery (default: 2)
-- `NOTIFY_RETRY_INITIAL_DELAY_SECONDS` - Initial retry delay (default: 60)
+### Firestore backend
 
-## Data Format
+- `snapshots`: comparison baseline
+- `runs`: execution audit
+- `events`: detected-credit events
+- `deliveries`: per-channel delivery state
+- Up to 100 retryable deliveries are processed at the beginning of a run.
+- For a new diff, the snapshot advances after the event and deliveries are committed in a batch.
+- Runs record `success`, `partial_failure`, or `failed`; partial failure produces a non-zero CLI exit.
+- `--dry-run` still creates a `runs` record, but does not update snapshots, events, or deliveries.
+- Existing redeliveries are still processed at run start during a dry run and may update existing delivery/event state.
 
-### Bangumi works
-```json
-{"id": "509986", "title": "アポカリプスホテル", "title_cn": "末日后酒店", "role": "原画", "info": "..."}
-```
+### Notifications
 
-### AniList works
-```json
-{"id": "180516", "title": "ウマ娘 シンデレラグレイ", "title_romaji": "Uma Musume: Cinderella Gray", "role": "原画 (OP)", "date": "2025-04"}
-```
+- `ConsoleNotifier`
+- `EmailNotifier` with STARTTLS, optional SMTP AUTH, and `{title}` / `{message}` templates
+- `MultiNotifier` attempts every configured backend and aggregates failures
+- `DeliveryDispatcher` makes `max_retries + 1` attempts with a 2x delay multiplier
+
+## Important Configuration Rules
+
+- At least one of `TARGET_BANGUMI_ID` or `TARGET_NAME` is required.
+- `STATE_BACKEND`: `local` / `firestore`
+- `NOTIFIER`: `console` / `email`
+- `NOTIFIERS`, when set, takes precedence over `NOTIFIER`.
+- `GCP_PROJECT_ID` is required for Firestore.
+- `SMTP_HOST`, `SMTP_FROM`, and `SMTP_TO` are required for email.
+- `SMTP_PORT` must be an integer; an empty string is invalid.
+
+## GitHub Actions
+
+- CI: Ruff → mypy → pytest on pushes to `main`/`develop` and on pull requests
+- Daily: 09:00 JST or `workflow_dispatch`
+- WIF values `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, and `GCP_SERVICE_ACCOUNT` are GitHub Variables.
+- The daily workflow defaults to Firestore and cannot start successfully without the required Variables.
+
+## Current Limitations
+
+- AniList is limited to 25 entries.
+- `dedupeKey` is stored but is not currently enforced as a uniqueness constraint.
+- `lastSnapshotHash` is stored, while diff detection still compares serialized JSON items.
+- `maxAttempts=50` is stored but is not currently enforced by redelivery processing.
+- Concurrent runs are not locked.
 
 ## Documentation
-- All files in `docs/` are maintained in both English and Japanese (with `-JP` suffix)
-- When modifying any English doc in `docs/`, always update the corresponding `-JP.md` file as well
-- Current bilingual docs:
-  - `docs/AUTOMATION.md` ↔ `docs/AUTOMATION-JP.md`
-  - `docs/MAINTENANCE.md` ↔ `docs/MAINTENANCE-JP.md`
-- Design docs (Firestore integration, bilingual JP ↔ EN):
-  - `docs/FIRESTORE_RUNTIME_DESIGN.md` ↔ `docs/FIRESTORE_RUNTIME_DESIGN_EN.md` — Execution flow, collections, retry policy
-  - `docs/FIRESTORE_DESIGN_CHECKLIST.md` ↔ `docs/FIRESTORE_DESIGN_CHECKLIST_EN.md` — Design decisions
-  - `docs/FIRESTORE_SNAPSHOTS_AND_UPDATE_POLICY.md` ↔ `docs/FIRESTORE_SNAPSHOTS_AND_UPDATE_POLICY_EN.md` — Snapshot update rules
-  - `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md` ↔ `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS_EN.md` — WIF authentication setup
-  - `docs/SETUP_CHECKLIST_JP.md` ↔ `docs/SETUP_CHECKLIST.md` — Step-by-step setup guide
+
+Update English/Japanese pairs together.
+
+- `AUTOMATION.md` ↔ `AUTOMATION-JP.md`
+- `MAINTENANCE.md` ↔ `MAINTENANCE-JP.md`
+- `SETUP_CHECKLIST.md` ↔ `SETUP_CHECKLIST_JP.md`
+- `ARCHITECTURE.md` ↔ `ARCHITECTURE-JP.md`
+- Firestore/WIF documents: Japanese file ↔ `*_EN.md`
 
 ## Testing
-- TDD approach: write tests first, then implement
-- Test names in Japanese: `test_{descriptive_scenario_in_Japanese}`
-- HTTP mocking with `responses` library
-- Fixtures in `tests/fixtures/` for HTML parsing tests
-- Tests cover CLI, scraper, history, notifier, config, delivery, usecase, and formatters modules
+
+- Unit tests cover business logic, CLI, scrapers, notifiers, and Firestore repositories/use cases.
+- HTTP calls are mocked with `responses`.
+- The commit helper uses fake `git` and fake `uv`, so its tests never modify the real repository.

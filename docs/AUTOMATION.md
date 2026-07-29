@@ -1,47 +1,38 @@
 # Automation Guide
 
+This guide describes how to run Animator Credit Monitor on a schedule. Create `.env` and configure at least one monitoring target and a notifier before enabling automation.
+
+## Common Notes
+
+- Recommended frequency: **once per day**
+- Bangumi waits two seconds between paginated requests by default.
+- For cron/systemd, use the absolute path returned by `command -v uv`.
+- With `STATE_BACKEND=local`, keep the working directory's `data/` directory persistent.
+- Prefer `STATE_BACKEND=firestore` when multiple hosts or jobs may run the monitor.
+
 ## cron (Linux/macOS)
 
-### Setup
-
-1. Open the crontab editor:
-
-```bash
-crontab -e
-```
-
-2. Add a daily check (e.g., every day at 9:00 AM):
+Run every day at 09:00:
 
 ```cron
-0 9 * * * cd /path/to/animator-credit-monitor && /path/to/uv run animator-credit-monitor check >> /path/to/logs/monitor.log 2>&1
+0 9 * * * cd /path/to/animator-credit-monitor && /absolute/path/to/uv run --locked --no-dev animator-credit-monitor check >> /path/to/logs/monitor.log 2>&1
 ```
 
-### Recommended Frequency
-
-- **1 day / 1 time** is recommended to avoid excessive load on target sites
-- Bangumi and Sakuga@wiki are community-maintained databases; please be respectful of their server resources
-
-### Log Output
-
-Add a log rotation:
+Daily log files:
 
 ```cron
-0 9 * * * cd /path/to/animator-credit-monitor && /path/to/uv run animator-credit-monitor check >> /path/to/logs/monitor_$(date +\%Y\%m\%d).log 2>&1
+0 9 * * * cd /path/to/animator-credit-monitor && /absolute/path/to/uv run --locked --no-dev animator-credit-monitor check >> /path/to/logs/monitor_$(date +\%Y\%m\%d).log 2>&1
 ```
 
 ## Task Scheduler (Windows)
 
-1. Open Task Scheduler
-2. Create a new Basic Task
-3. Set trigger to "Daily"
-4. Set action to "Start a program":
-   - Program: `uv`
-   - Arguments: `run animator-credit-monitor check`
-   - Start in: `C:\path\to\animator-credit-monitor`
+- Program: `uv`
+- Arguments: `run --locked --no-dev animator-credit-monitor check`
+- Start in: the repository's absolute path
 
 ## systemd Timer (Linux)
 
-### Service file (`/etc/systemd/user/animator-monitor.service`)
+`~/.config/systemd/user/animator-credit-monitor.service`:
 
 ```ini
 [Unit]
@@ -50,10 +41,10 @@ Description=Animator Credit Monitor
 [Service]
 Type=oneshot
 WorkingDirectory=/path/to/animator-credit-monitor
-ExecStart=/path/to/uv run animator-credit-monitor check
+ExecStart=/absolute/path/to/uv run --locked --no-dev animator-credit-monitor check
 ```
 
-### Timer file (`/etc/systemd/user/animator-monitor.timer`)
+`~/.config/systemd/user/animator-credit-monitor.timer`:
 
 ```ini
 [Unit]
@@ -67,59 +58,94 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-### Enable
-
 ```bash
-systemctl --user enable --now animator-monitor.timer
+systemctl --user daemon-reload
+systemctl --user enable --now animator-credit-monitor.timer
 ```
 
-## GitHub Actions (Scheduled)
+## GitHub Actions
 
-This repository includes `.github/workflows/daily-credit-check.yml`.
+`.github/workflows/daily-credit-check.yml` runs:
 
-### Setup
+- on schedule at 00:00 UTC (09:00 JST)
+- manually through `workflow_dispatch`
 
-1. Go to **Settings → Secrets and variables → Actions**.
-2. Register **Variables** (non-secret, visible in logs):
-   - `TARGET_BANGUMI_ID` (optional, for Bangumi monitoring)
-   - `NOTIFIER` (`console`, `email`, or `line`)
-   - `NOTIFIERS` (optional multi-destination, e.g. `email,line`)
-   - `STATE_BACKEND` (`firestore` recommended for GitHub Actions)
-   - `FIRESTORE_DATABASE`, `FIRESTORE_COLLECTION_PREFIX` (optional)
-   - `NOTIFY_RETRY_MAX_RETRIES`, `NOTIFY_RETRY_INITIAL_DELAY_SECONDS` (optional)
-   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_TLS` (if using email)
-   - `EMAIL_SUBJECT_TEMPLATE`, `EMAIL_BODY_TEMPLATE` (optional, `{title}` / `{message}` placeholders)
-   - `LINE_NOTIFY_API_URL`, `LINE_MESSAGE_TEMPLATE` (optional)
-   - GCP/WIF (see `docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md`):
-     - `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`
-3. Register **Secrets** (credentials, masked in logs):
-   - `TARGET_NAME` (AniList name-based check, if you prefer to keep it private)
-   - If `NOTIFIER=email`:
-     - `SMTP_FROM`, `SMTP_TO`, `SMTP_USER`, `SMTP_PASS`
-   - If `NOTIFIER=line`:
-     - `LINE_NOTIFY_TOKEN`
+### GitHub Variables Used by the Current Workflow
 
-4. Trigger once manually from **Actions → Daily Credit Check → Run workflow**.
+Required:
 
-### Authentication Notes
+- `GCP_PROJECT_ID`
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`
+- `GCP_SERVICE_ACCOUNT`
+- either `TARGET_BANGUMI_ID` or `TARGET_NAME`
+- `NOTIFIER`: `console` or `email`
+- `SMTP_PORT`: normally `587`
 
-- Keep credentials (passwords, tokens, personal addresses) in **GitHub Secrets** (never commit into repo files).
-- Non-secret configuration (host names, ports, feature flags) should use **GitHub Variables**.
-- The workflow passes both as runtime environment variables only.
-- If credentials are invalid, the CLI exits with a clear configuration/notification error.
+Recommended:
 
+- `STATE_BACKEND=firestore`
+- `FIRESTORE_DATABASE=(default)`
+- `NOTIFY_RETRY_MAX_RETRIES=2`
+- `NOTIFY_RETRY_INITIAL_DELAY_SECONDS=60`
 
-### SendGrid quick preset (for `NOTIFIER=email`)
+For email:
 
-Use these Secrets values when sending via SendGrid SMTP:
+- `SMTP_HOST`
+- `SMTP_USE_TLS=true`
+- optional: `EMAIL_SUBJECT_TEMPLATE`, `EMAIL_BODY_TEMPLATE`
+
+`TARGET_NAME` may be stored as a Secret when it should not be public; the workflow prefers `secrets.TARGET_NAME`.
+
+### GitHub Secrets
+
+For email:
+
+- `SMTP_FROM`
+- `SMTP_TO`
+- `SMTP_USER`
+- `SMTP_PASS`
+
+SMTP AUTH is used only when both `SMTP_USER` and `SMTP_PASS` are set. For Gmail, use an App Password instead of the normal account password.
+
+### WIF
+
+The current workflow reads `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, and `GCP_SERVICE_ACCOUNT` from `vars.*`. Register them as **GitHub Variables**, not GitHub Secrets.
+
+See [`GCP_WIF_SETUP_FOR_GITHUB_ACTIONS_EN.md`](GCP_WIF_SETUP_FOR_GITHUB_ACTIONS_EN.md).
+
+### First Validation
+
+1. Actions → **Daily Credit Check** → **Run workflow**
+2. Confirm `Authenticate to Google Cloud (WIF)` succeeds.
+3. Confirm `Run credit monitor` starts without a configuration error.
+4. Inspect Firestore `runs` / `snapshots`.
+5. When a diff exists, inspect `events` / `deliveries` and the notification result.
+
+Common errors caused by empty configuration:
+
+- `Notifier type must be one of: console, email`: `NOTIFIER` is missing.
+- `SMTP_PORT must be an integer`: the workflow passed an empty value; set `SMTP_PORT=587`.
+- `GCP_PROJECT_ID is required when STATE_BACKEND=firestore`: the `GCP_PROJECT_ID` Variable is missing.
+- WIF step is skipped: the provider or service-account Variable is missing.
+
+## SendGrid SMTP Example
+
+Variables:
 
 ```text
 NOTIFIER=email
 SMTP_HOST=smtp.sendgrid.net
 SMTP_PORT=587
 SMTP_USE_TLS=true
+```
+
+Secrets:
+
+```text
+SMTP_FROM=verified-sender@example.com
+SMTP_TO=destination@example.com
 SMTP_USER=apikey
 SMTP_PASS=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-Also set `SMTP_FROM` to a verified sender/domain in SendGrid.
+Use a sender identity or domain verified by SendGrid for `SMTP_FROM`.
