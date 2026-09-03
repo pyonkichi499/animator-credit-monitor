@@ -170,6 +170,8 @@ email 使用時の追加設定:
 
 `TARGET_NAME` は Variable または Secret のどちらでも設定できます。GCP/WIF の3項目は workflow が `vars.*` を参照するため Variables に登録します。
 
+定期実行ジョブは開始時に必須設定を検証します。`STATE_BACKEND=firestore` の場合は WIF 認証（`GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_SERVICE_ACCOUNT` / `GCP_PROJECT_ID`）を必須とし、設定不足時は監視処理へ進む前に明示的に失敗します。schedule と手動実行の重複を避けるため `concurrency` で直列化し、ジョブには `timeout-minutes: 30` を設定しています。
+
 詳細:
 
 - [アーキテクチャ](docs/ARCHITECTURE-JP.md)
@@ -195,7 +197,7 @@ uv 移行差分用のコミット補助スクリプトについては [`scripts/
 - Bangumi は HTML セレクタに依存するため、サイト構造変更時に修正が必要です。
 - Firestore の `dedupeKey` は保存されますが、現状は一意性制約として使用していません。
 - `deliveries.maxAttempts` は保存されますが、現状の再送処理では上限判定に使用していません。
-- GitHub Actions の同時実行に対する排他制御は未実装です。
+- GitHub Actions の重複実行は `concurrency` で直列化していますが、Firestore 側の transaction / dedupe / delivery lease による排他制御は未実装です。
 
 ## License
 
