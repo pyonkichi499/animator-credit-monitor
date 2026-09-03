@@ -6,9 +6,14 @@ on:
     - cron: "0 0 * * *"
   workflow_dispatch:
 
+concurrency:
+  group: daily-credit-check-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -16,14 +21,67 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate workflow configuration
+        shell: bash
+        env:
+          TARGET_BANGUMI_ID: ${{ vars.TARGET_BANGUMI_ID }}
+          TARGET_NAME: ${{ secrets.TARGET_NAME || vars.TARGET_NAME }}
+          STATE_BACKEND: ${{ vars.STATE_BACKEND || 'firestore' }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          NOTIFIER: ${{ vars.NOTIFIER }}
+          NOTIFIERS: ${{ vars.NOTIFIERS }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+        run: |
+          set -euo pipefail
+          errors=0
+          err() {
+            echo "::error::$1"
+            errors=1
+          }
+
+          [[ -n "${TARGET_BANGUMI_ID:-}" || -n "${TARGET_NAME:-}" ]] \
+            || err "TARGET_BANGUMI_ID or TARGET_NAME is required"
+
+          case "${STATE_BACKEND}" in
+            local | firestore) ;;
+            *) err "STATE_BACKEND must be 'local' or 'firestore' (got '${STATE_BACKEND}')" ;;
+          esac
+
+          [[ -n "${NOTIFIER:-}" || -n "${NOTIFIERS:-}" ]] \
+            || err "NOTIFIER or NOTIFIERS is required"
+
+          if [[ "${STATE_BACKEND}" == "firestore" ]]; then
+            [[ -n "${GCP_PROJECT_ID:-}" ]] \
+              || err "GCP_PROJECT_ID is required when STATE_BACKEND=firestore"
+            [[ -n "${GCP_WORKLOAD_IDENTITY_PROVIDER:-}" ]] \
+              || err "GCP_WORKLOAD_IDENTITY_PROVIDER is required when STATE_BACKEND=firestore"
+            [[ -n "${GCP_SERVICE_ACCOUNT:-}" ]] \
+              || err "GCP_SERVICE_ACCOUNT is required when STATE_BACKEND=firestore"
+          fi
+
+          notifiers="${NOTIFIERS:-${NOTIFIER:-}}"
+          if [[ ",${notifiers}," == *",email,"* ]]; then
+            [[ -n "${SMTP_HOST:-}" ]] || err "SMTP_HOST is required for the email notifier"
+            [[ -n "${SMTP_FROM:-}" ]] || err "SMTP_FROM is required for the email notifier"
+            [[ -n "${SMTP_TO:-}" ]] || err "SMTP_TO is required for the email notifier"
+          fi
+
+          [[ "${errors}" -eq 0 ]] \
+            || { echo "::error::Workflow configuration validation failed"; exit 1; }
+
       - name: Authenticate to Google Cloud (WIF)
-        if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' }}
+        if: ${{ (vars.STATE_BACKEND || 'firestore') == 'firestore' }}
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Restore history cache
+        if: ${{ (vars.STATE_BACKEND || 'firestore') == 'local' }}
         id: history-cache-restore
         uses: actions/cache/restore@v4
         with:
@@ -42,7 +100,7 @@ jobs:
 
       - name: Run credit monitor
         env:
-          TARGET_BANGUMI_ID: ${{ vars.TARGET_BANGUMI_ID || secrets.TARGET_BANGUMI_ID }}
+          TARGET_BANGUMI_ID: ${{ vars.TARGET_BANGUMI_ID }}
           TARGET_NAME: ${{ secrets.TARGET_NAME || vars.TARGET_NAME }}
           STATE_BACKEND: ${{ vars.STATE_BACKEND || 'firestore' }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -52,29 +110,30 @@ jobs:
           NOTIFY_RETRY_INITIAL_DELAY_SECONDS: ${{ vars.NOTIFY_RETRY_INITIAL_DELAY_SECONDS || '60' }}
 
           # Notification backend: console | email
-          NOTIFIER: ${{ vars.NOTIFIER || secrets.NOTIFIER }}
-          NOTIFIERS: ${{ vars.NOTIFIERS || secrets.NOTIFIERS }}
+          NOTIFIER: ${{ vars.NOTIFIER }}
+          NOTIFIERS: ${{ vars.NOTIFIERS }}
 
           # Email notifier settings (when NOTIFIER=email)
-          SMTP_HOST: ${{ vars.SMTP_HOST || secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ vars.SMTP_PORT || secrets.SMTP_PORT }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          SMTP_USE_TLS: ${{ vars.SMTP_USE_TLS || secrets.SMTP_USE_TLS }}
-          EMAIL_SUBJECT_TEMPLATE: ${{ vars.EMAIL_SUBJECT_TEMPLATE || secrets.EMAIL_SUBJECT_TEMPLATE }}
-          EMAIL_BODY_TEMPLATE: ${{ vars.EMAIL_BODY_TEMPLATE || secrets.EMAIL_BODY_TEMPLATE }}
+          SMTP_USE_TLS: ${{ vars.SMTP_USE_TLS || 'true' }}
+          EMAIL_SUBJECT_TEMPLATE: ${{ vars.EMAIL_SUBJECT_TEMPLATE || '{title}' }}
+          EMAIL_BODY_TEMPLATE: ${{ vars.EMAIL_BODY_TEMPLATE || '{message}' }}
 
           # DATA_DIR is only used when STATE_BACKEND=local
           DATA_DIR: data
         run: uv run --locked --no-dev animator-credit-monitor check
 
       - name: Ensure history directory exists
+        if: ${{ always() && (vars.STATE_BACKEND || 'firestore') == 'local' }}
         run: mkdir -p data
 
       - name: Save history cache
-        if: always()
+        if: ${{ always() && (vars.STATE_BACKEND || 'firestore') == 'local' }}
         uses: actions/cache/save@v4
         with:
           path: data
