@@ -177,6 +177,7 @@ email 使用時の追加設定:
 - [アーキテクチャ](docs/ARCHITECTURE-JP.md)
 - [自動実行ガイド](docs/AUTOMATION-JP.md)
 - [セットアップチェックリスト](docs/SETUP_CHECKLIST_JP.md)
+- [GCP Firestore + WIF セットアップ手順書](docs/GCP_FIRESTORE_SETUP_RUNBOOK_JP.md)
 - [GCP WIF セットアップ](docs/GCP_WIF_SETUP_FOR_GITHUB_ACTIONS.md)
 - [Firestore Runtime Design](docs/FIRESTORE_RUNTIME_DESIGN.md)
 

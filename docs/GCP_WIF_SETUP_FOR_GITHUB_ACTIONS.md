@@ -1,5 +1,9 @@
 # GitHub Actions 向け GCP WIF セットアップ
 
+> Firestore の新規作成から動作確認までを一気通貫でまとめた手順書は
+> [`GCP_FIRESTORE_SETUP_RUNBOOK_JP.md`](GCP_FIRESTORE_SETUP_RUNBOOK_JP.md) にあります。
+> 初めて構築する場合はそちらを推奨します。本書は WIF 部分の個別リファレンスです。
+
 GitHub Actions から Service Account JSON キーを使わず Firestore へ接続する手順です。
 
 このリポジトリには WIF リソース作成スクリプトは含まれていません。以下のコマンドを確認し、手動または自分の IaC へ移植して実行してください。
